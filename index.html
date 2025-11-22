@@ -16,7 +16,7 @@
   --glass: rgba(255, 255, 255, 0.1);
   --btn-hover: rgba(255, 255, 255, 0.15);
 }
-html, body { margin:0; padding:0; height:100%; font-family: 'Inter', sans-serif; background: var(--bg); color: #e6eef6; }
+html, body { margin:0; padding:0; height:100%; font-family:'Inter',sans-serif; background:var(--bg); color:#e6eef6; }
 #map { position: fixed; inset:0; }
 .topbar {
   position: absolute; top:12px; left:12px; z-index:999;
@@ -26,7 +26,7 @@ html, body { margin:0; padding:0; height:100%; font-family: 'Inter', sans-serif;
 }
 .topbar button, .topbar input, .topbar select {
   background: var(--glass); border:none; color:#e6eef6; padding:12px 18px; border-radius:14px; font-size:14px;
-  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1); cursor:pointer;
+  transition: all 0.35s cubic-bezier(0.4,0,0.2,1); cursor:pointer;
 }
 .topbar button:hover { background: var(--btn-hover); transform: translateY(-3px); box-shadow:0 8px 24px rgba(0,0,0,0.5); }
 .topbar button:active { transform: scale(0.95); }
@@ -45,6 +45,7 @@ html, body { margin:0; padding:0; height:100%; font-family: 'Inter', sans-serif;
 </head>
 <body>
 <div id="map" aria-hidden="true"></div>
+
 <div class="topbar" role="region" aria-label="Controls">
   <button id="startBtn">Starta inspelning</button>
   <button id="stopBtn" disabled>Stoppa inspelning</button>
@@ -56,14 +57,14 @@ html, body { margin:0; padding:0; height:100%; font-family: 'Inter', sans-serif;
   <button id="resetProgressBtn" title="Reset progress för aktuell laddad rutt">Reset progress</button>
   <button id="followBtn">Följ: På</button>
 </div>
+
 <div id="instrPanel" role="region" aria-label="Turn-by-turn">
   <div class="instrTitle">Turn-by-turn & status</div>
   <div id="instrList">Ingen rutt vald</div>
   <div class="note">Gröna segment är markerade under sessionen. Ladda en rutt igen om du vill börja om.</div>
 </div>
+
 <script>
-// Full JS-logik med smooth GPS, gradientsegment, live-tracking och GitHub-funktioner.
-// Glas-paneler och smooth animationer implementerade.
 (() => {
 const CFG={owner:'MasterBenDover',repo:'gps-tracker',folder:'routes',osrm:'https://router.project-osrm.org'};
 const S={pat:sessionStorage.getItem('gh_pat')||null,rec:false,watchId:null,liveWatch:null,autoFollow:true,currentPoints:[],loaded:null,loadedPath:null,segments:[],completed:[]};
@@ -71,32 +72,106 @@ const $=id=>document.getElementById(id);
 const UI={start:$('startBtn'),stop:$('stopBtn'),save:$('saveBtn'),setToken:$('setTokenBtn'),select:$('routeSelect'),load:$('loadBtn'),list:$('instrList'),name:$('routeName'),reset:$('resetProgressBtn'),follow:$('followBtn')};
 const b64={enc:s=>btoa(unescape(encodeURIComponent(s))),dec:b=>decodeURIComponent(escape(atob(b)))};
 const hav=(a,b)=>{const R=6371000,toRad=d=>d*Math.PI/180;const dLat=toRad(b.lat-a.lat),dLon=toRad(b.lon-a.lon);const la1=toRad(a.lat),la2=toRad(b.lat);const h=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.sqrt(h));};
-const gh=async(p,m='GET',body=null)=>{const h={Accept:'application/vnd.github.v3+json'};if(S.pat)h.Authorization='token '+S.pat;if(body)h['Content-Type']='application/json';const r=await fetch(`https://api.github.com${p}`,{method:m,headers:h,body:body?JSON.stringify(body):undefined});if(!r.ok)throw new Error(await r.text());return r.json().catch(()=>null);};
-const map=new maplibregl.Map({container:'map',style:{version:8,sources:{basemap:{type:'raster',tiles:['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],tileSize:512}},layers:[{id:'osm',type:'raster',source:'basemap'}]},center:[18.06,59.33],zoom:13});
+
+const gh=async(p,m='GET',body=null)=>{
+  const h={Accept:'application/vnd.github.v3+json'};
+  if(S.pat) h.Authorization='token '+S.pat;
+  if(body) h['Content-Type']='application/json';
+  const r=await fetch(`https://api.github.com${p}`,{method:m,headers:h,body:body?JSON.stringify(body):undefined});
+  if(!r.ok) throw new Error(await r.text());
+  return r.json().catch(()=>null);
+};
+
+const map=new maplibregl.Map({
+  container:'map',
+  style:{version:8,sources:{basemap:{type:'raster',tiles:['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],tileSize:512}},
+  layers:[{id:'osm',type:'raster',source:'basemap'}]},
+  center:[18.06,59.33],zoom:13
+});
+
+map.on('load',()=>{
+  ['full','seg','trail'].forEach(id=>map.addSource(id,{type:'geojson',data:{type:'FeatureCollection',features:[]}}));
+  map.addLayer({id:'full-line',type:'line',source:'full',paint:{'line-color':'#6A0DAD','line-width':4}});
+  map.addLayer({id:'seg-line',type:'line',source:'seg',paint:{'line-color':['get','color'],'line-width':6}});
+  map.addLayer({id:'trail-line',type:'line',source:'trail',paint:{'line-color':'#00ff55','line-width':6}});
+  loadList();
+});
+
 const geoSrc=id=>map.getSource(id);
 const setGeo=(id,data)=>geoSrc(id)?.setData(data);
-map.on('load',()=>{['full','seg','trail','marker'].forEach(id=>map.addSource(id,{type:'geojson',data:{type:'FeatureCollection',features:[]}}));
-map.addLayer({id:'full-line',type:'line',source:'full',paint:{'line-color':'#6A0DAD','line-width':4}});
-map.addLayer({id:'seg-line',type:'line',source:'seg',paint:{'line-color':['get','color'],'line-width':6}});
-map.addLayer({id:'trail-line',type:'line',source:'trail',paint:{'line-color':'#00ff55','line-width':6}});
-map.addLayer({id:'marker-point',type:'symbol',source:'marker',layout:{'icon-image':'marker-15','icon-size':1.5}});
-loadList();});
-const loadList=async()=>{UI.select.innerHTML='<option>(läser...)</option>';try{const d=await gh(`/repos/${CFG.owner}/${CFG.repo}/contents/${CFG.folder}`);UI.select.innerHTML='<option value="">Välj rutt</option>';d.sort((a,b)=>b.name.localeCompare(a.name)).forEach(f=>{const o=document.createElement('option');o.value=f.path;o.textContent=f.name.replace(/\.json$/,'');UI.select.appendChild(o);});}catch{UI.select.innerHTML='<option>(tom)</option>';}};
-UI.start.onclick=()=>{if(!navigator.geolocation)return alert('Ingen GPS');S.rec=true;S.currentPoints=[];UI.start.disabled=true;UI.stop.disabled=false;UI.save.disabled=true;setGeo('full',{type:'FeatureCollection',features:[]});setGeo('trail',{type:'FeatureCollection',features:[]});S.watchId=navigator.geolocation.watchPosition(p=>{const pt={lat:p.coords.latitude,lon:p.coords.longitude,t:p.timestamp||Date.now()};S.currentPoints.push(pt);drawFull();drawTrail();if(S.autoFollow)map.easeTo({center:[pt.lon,pt.lat],duration:300});},console.error,{enableHighAccuracy:true});};
-UI.stop.onclick=()=>{navigator.geolocation.clearWatch(S.watchId);S.rec=false;UI.start.disabled=false;UI.stop.disabled=true;UI.save.disabled=S.currentPoints.length<2;};
+
+const loadList=async()=>{
+  UI.select.innerHTML='<option>(läser...)</option>';
+  try{
+    const d=await gh(`/repos/${CFG.owner}/${CFG.repo}/contents/${CFG.folder}`);
+    UI.select.innerHTML='<option value="">Välj rutt</option>';
+    d.sort((a,b)=>b.name.localeCompare(a.name)).forEach(f=>{
+      const o=document.createElement('option');
+      o.value=f.path;o.textContent=f.name.replace(/\.json$/,'');UI.select.appendChild(o);
+    });
+  }catch{UI.select.innerHTML='<option>(tom)</option>';}
+};
+
+UI.start.onclick=()=>{
+  if(!navigator.geolocation) return alert('Ingen GPS');
+  S.rec=true; S.currentPoints=[];
+  UI.start.disabled=true; UI.stop.disabled=false; UI.save.disabled=true;
+  setGeo('full',{type:'FeatureCollection',features:[]});
+  setGeo('trail',{type:'FeatureCollection',features:[]});
+  S.watchId=navigator.geolocation.watchPosition(p=>{
+    const pt={lat:p.coords.latitude,lon:p.coords.longitude,t:p.timestamp||Date.now()};
+    S.currentPoints.push(pt); drawFull(); drawTrail();
+    if(S.autoFollow) map.easeTo({center:[pt.lon,pt.lat],duration:300});
+  },console.error,{enableHighAccuracy:true});
+};
+
+UI.stop.onclick=()=>{
+  navigator.geolocation.clearWatch(S.watchId);
+  S.rec=false;
+  UI.start.disabled=false; UI.stop.disabled=true;
+  UI.save.disabled=S.currentPoints.length<2;
+};
+
 const drawFull=()=>setGeo('full',{type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'LineString',coordinates:S.currentPoints.map(p=>[p.lon,p.lat])}}]});
-const drawTrail=()=>{const pts=S.currentPoints;if(pts.length<2)return setGeo('trail',{type:'FeatureCollection',features:[]});setGeo('trail',{type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'LineString',coordinates:pts.slice(-2).map(p=>[p.lon,p.lat])}}]});};
-UI.load.onclick=async()=>{if(!UI.select.value)return alert('Välj rutt');try{const f=await gh(`/repos/${CFG.owner}/${CFG.repo}/contents/${UI.select.value}`);S.loaded=JSON.parse(b64.dec(f.content));S.loadedPath=UI.select.value;buildSeg(S.loaded.points);listInstr();zoomToRoute(S.loaded.points);}catch(e){alert('Fel: '+e);}};
+const drawTrail=()=>{const pts=S.currentPoints;if(pts.length<2)return setGeo('trail',{type:'FeatureCollection',features:[]});
+setGeo('trail',{type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'LineString',coordinates:pts.slice(-2).map(p=>[p.lon,p.lat])}}]});};
+
+UI.setToken.onclick=()=>{
+  const t = prompt('Klistra in din GitHub Personal Access Token (public_repo scope):');
+  if(!t) return;
+  S.pat = t.trim();
+  sessionStorage.setItem('gh_pat',S.pat);
+};
+
+UI.load.onclick=async()=>{
+  if(!UI.select.value) return alert('Välj rutt');
+  try{
+    const f=await gh(`/repos/${CFG.owner}/${CFG.repo}/contents/${UI.select.value}`);
+    S.loaded=JSON.parse(b64.dec(f.content));
+    S.loadedPath=UI.select.value;
+    buildSeg(S.loaded.points); listInstr(); zoomToRoute(S.loaded.points);
+  }catch(e){alert('Fel: '+e);}
+};
+
 const buildSeg=pts=>{S.segments=[];S.completed=[];for(let i=0;i<pts.length-1;i++){const a=pts[i],b=pts[i+1];S.segments.push({i,a,b,coords:[[a.lon,a.lat],[b.lon,b.lat]]});S.completed.push(false);} drawSegGradient();};
 const gradientColor=pct=>{const r1=106,g1=13,b1=173,r2=0,g2=255,b2=85,r=Math.round(r1+(r2-r1)*pct),g=Math.round(g1+(g2-g1)*pct),b=Math.round(b1+(b2-b1)*pct);return `rgb(${r},${g},${b})`;};
 const drawSegGradient=()=>{const feats=S.segments.map((s,i)=>{const pct=S.completed.slice(0,i+1).filter(x=>x).length/S.segments.length;return {type:'Feature',geometry:{type:'LineString',coordinates:s.coords},properties:{color:gradientColor(pct)}}});setGeo('seg',{type:'FeatureCollection',features:feats});};
 const listInstr=()=>{UI.list.innerHTML='';S.segments.forEach((_,i)=>{const li=document.createElement('div');li.className='instrItem';li.textContent=`Segment ${i+1}: ${S.completed[i]?'✓ KLAR':'Ej klar'}`;UI.list.appendChild(li);});};
 UI.reset.onclick=()=>{S.completed=S.completed.map(()=>false);drawSegGradient();listInstr();};
 UI.follow.onclick=()=>{S.autoFollow=!S.autoFollow;UI.follow.textContent=S.autoFollow?'Följ: På':'Följ: Av';};
+
 let lastPos=null;
 const smoothPos=(cur,alpha=0.2)=>{if(!lastPos){lastPos={...cur};return cur;}const lat=lastPos.lat+(cur.lat-lastPos.lat)*alpha;const lon=lastPos.lon+(cur.lon-lastPos.lon)*alpha;lastPos={lat,lon};return lastPos;};
-const livePosSmooth=p=>{const u=smoothPos({lat:p.coords.latitude,lon:p.coords.longitude});if(S.autoFollow)map.easeTo({center:[u.lon,u.lat],duration:200});let best=-1,dist=Infinity;S.segments.forEach((s,i)=>{const d=hav(u,s.b);if(d<dist){dist=d;best=i;}});if(dist<20){S.completed[best]=true;drawSegGradient();listInstr();}};
+const livePosSmooth=p=>{
+  const u=smoothPos({lat:p.coords.latitude,lon:p.coords.longitude});
+  if(S.autoFollow) map.easeTo({center:[u.lon,u.lat],duration:200});
+  let best=-1,dist=Infinity;
+  S.segments.forEach((s,i)=>{const d=hav(u,s.b);if(d<dist){dist=d;best=i;}});
+  if(dist<20){S.completed[best]=true;drawSegGradient();listInstr();}
+};
+
 if(navigator.geolocation){S.liveWatch=navigator.geolocation.watchPosition(livePosSmooth,console.warn,{enableHighAccuracy:true,maximumAge:0,timeout:10000});}
+
 })();
 </script>
 </body>
