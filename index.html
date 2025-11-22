@@ -2,77 +2,147 @@
 <html lang="sv">
 <head>
   <meta charset="utf-8" />
-  <title>GPS Tracker — MasterBenDover</title>
+  <title>GPS Tracker — MasterBenDover (Dark)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <!-- MapLibre GL -->
+  <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
+
   <style>
-    html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif}
-    #map{height:68vh}
-    .controls{padding:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    button,select,input{padding:8px 10px;font-size:14px}
-    #instr{padding:8px;max-height:22vh;overflow:auto;border-top:1px solid #eee}
-    .route-item{padding:6px;border-bottom:1px solid #f0f0f0}
-    #tokenStatus{font-size:13px;color:#666}
+    :root{
+      --bg:#0b0f14;
+      --panel:#0f1720;
+      --muted:#9aa7b2;
+      --accent:#6A0DAD; /* mörklila */
+      --green:#00AA00;
+      --panel-border: rgba(255,255,255,0.04);
+      --glass: rgba(255,255,255,0.03);
+    }
+    html,body{height:100%;margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:var(--bg);color:#e6eef6}
+    #map{position:fixed;inset:0;}
+    .topbar{
+      position: absolute; left:12px; top:12px; z-index: 999;
+      background: linear-gradient(180deg,var(--panel), rgba(10,14,18,0.85));
+      border:1px solid var(--panel-border);
+      padding:10px; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,0.6);
+      display:flex; gap:8px; align-items:center; flex-wrap:wrap; min-width:360px;
+    }
+    button,input,select{ background:var(--glass); border:1px solid rgba(255,255,255,0.04); color:#e6eef6; padding:8px 10px; border-radius:8px; font-size:14px }
+    input{min-width:160px}
+    .small{font-size:13px;padding:6px 8px}
+    #instrPanel{
+      position:absolute; right:12px; top:12px; z-index:999;
+      width:320px; max-height:70vh; overflow:auto;
+      background:linear-gradient(180deg,var(--panel), rgba(10,14,18,0.9));
+      border:1px solid var(--panel-border); border-radius:10px; padding:10px; color:var(--muted);
+    }
+    .instrTitle{color:#fff;font-weight:600;margin-bottom:8px}
+    .instrItem{padding:8px;border-bottom:1px dashed rgba(255,255,255,0.03); color:var(--muted)}
+    .status{font-size:13px;color:var(--muted);margin-left:6px}
+    .note{font-size:12px;color:#8fa3ad;margin-top:6px}
   </style>
 </head>
 <body>
-  <div class="controls">
-    <button id="startBtn">Starta inspelning</button>
-    <button id="stopBtn" disabled>Stoppa inspelning</button>
+  <div id="map" aria-hidden="true"></div>
 
-    <label> Namn:
+  <div class="topbar" role="region" aria-label="Controls">
+    <button id="startBtn" class="small">Starta inspelning</button>
+    <button id="stopBtn" class="small" disabled>Stoppa inspelning</button>
+
+    <label>
       <input id="routeName" placeholder="Namn på rutt" />
     </label>
-    <button id="saveBtn" disabled>Spara rutt till GitHub</button>
+    <button id="saveBtn" class="small" disabled>Spara rutt till GitHub</button>
 
-    <button id="setTokenBtn">Sätt GitHub-token</button>
-    <span id="tokenStatus">Token: (ej satt)</span>
+    <button id="setTokenBtn" class="small">Sätt GitHub-token</button>
+    <span id="tokenStatus" class="status">Token: (ej satt)</span>
 
-    <label> Välj rutt:
-      <select id="routeSelect"><option value="">(ladda...)</option></select>
+    <label style="margin-left:8px">Välj rutt:
+      <select id="routeSelect"></select>
     </label>
-    <button id="loadBtn">Ladda rutt</button>
+    <button id="loadBtn" class="small">Ladda rutt</button>
+
+    <button id="resetProgressBtn" class="small" title="Reset progress för aktuell laddad rutt">Reset progress</button>
+    <button id="followBtn" class="small">Följ: På</button>
   </div>
 
-  <div id="map"></div>
-  <div id="instr"><strong>Turn-by-turn (OSRM):</strong><div id="instrList">Ingen rutt vald</div></div>
+  <div id="instrPanel" role="region" aria-label="Turn-by-turn">
+    <div class="instrTitle">Turn-by-turn & status</div>
+    <div id="instrList" style="min-height:40px;color:var(--muted)">Ingen rutt vald</div>
+    <div class="note">Gröna segment är permanent markerade under en session (sparas i din webbläsare). Ladda en rutt igen om du vill börja om.</div>
+  </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-/* ---------- KONFIG för MasterBenDover ---------- */
+/* ===========================
+   KONFIGURATION (ändra ej)
+   =========================== */
 const GITHUB_OWNER = 'MasterBenDover';
 const GITHUB_REPO  = 'gps-tracker';
 const ROUTES_FOLDER = 'routes';
 const OSRM_BASE = 'https://router.project-osrm.org';
 
-/* ---------- STATE ---------- */
+/* ===========================
+   GLOBAL STATE
+   =========================== */
 let pat = sessionStorage.getItem('gh_pat') || null;
 let recording = false;
 let watchId = null;
-let currentPoints = [];
-let fullLayer=null, segmentsLayer=null, shortGreenLayer=null, map=null;
+let currentPoints = []; // när vi spelar in
+let loadedRoute = null; // objekt från GitHub: {name,created,points}
+let loadedRoutePath = null; // repo path (unik)
+let completedSegments = []; // boolean array per segment index
+let firstFixEstablished = false;
+let liveWatchId = null;
+let autoFollow = true;
 
-/* ---------- INIT MAP ---------- */
-map = L.map('map').setView([59.33,18.06],13);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
-fullLayer = L.polyline([], { color:'#6A0DAD', weight:5, opacity:0.95}).addTo(map);
-segmentsLayer = L.layerGroup().addTo(map);
-shortGreenLayer = L.layerGroup().addTo(map);
+/* ===========================
+   MAPLIBRE INIT
+   =========================== */
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      'carto-dark': {
+        type: 'raster',
+        tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],
+        tileSize: 512
+      }
+    },
+    layers: [
+      { id:'osm-dark', type:'raster', source:'carto-dark' }
+    ]
+  },
+  center: [18.06,59.33],
+  zoom: 13
+});
 
-/* ---------- UI refs ---------- */
+// Add default zoom controls (top-left)
+map.addControl(new maplibregl.NavigationControl(), 'top-left');
+
+/* ===========================
+   UI REFS
+   =========================== */
 const startBtn = document.getElementById('startBtn');
-const stopBtn  = document.getElementById('stopBtn');
-const saveBtn  = document.getElementById('saveBtn');
-const routeNameInput = document.getElementById('routeName');
-const tokenStatus = document.getElementById('tokenStatus');
+const stopBtn = document.getElementById('stopBtn');
+const saveBtn = document.getElementById('saveBtn');
 const setTokenBtn = document.getElementById('setTokenBtn');
+const tokenStatus = document.getElementById('tokenStatus');
 const routeSelect = document.getElementById('routeSelect');
 const loadBtn = document.getElementById('loadBtn');
 const instrList = document.getElementById('instrList');
+const routeNameInput = document.getElementById('routeName');
+const resetProgressBtn = document.getElementById('resetProgressBtn');
+const followBtn = document.getElementById('followBtn');
 
 updateTokenUI();
 
-/* ---------- HJÄLP: haversine (m) ---------- */
+/* ===========================
+   HELPERS
+   =========================== */
+function toBase64(str){ return btoa(unescape(encodeURIComponent(str))); }
+function fromBase64(b64){ return decodeURIComponent(escape(atob(b64))); }
+
 function haversine(a,b){
   const R=6371000;
   const toRad = d => d*Math.PI/180;
@@ -83,44 +153,97 @@ function haversine(a,b){
   return R*c;
 }
 
-/* ---------- RECORDING ---------- */
+/* ===========================
+   VECTOR LAYERS (MapLibre sources)
+   =========================== */
+map.on('load', () => {
+  // Source + layer for full route (single LineString)
+  map.addSource('full-route', { type:'geojson', data: { type:'FeatureCollection', features:[] } });
+  map.addLayer({ id:'full-route-line', type:'line', source:'full-route',
+    paint: { 'line-color': '#6A0DAD', 'line-width': 4, 'line-opacity': 0.95 }
+  });
+
+  // Source for segments (we will push individual segment features with color prop)
+  map.addSource('segments', { type:'geojson', data: { type:'FeatureCollection', features:[] } });
+  map.addLayer({ id:'segments-line', type:'line', source:'segments',
+    paint: { 'line-color': ['get','color'], 'line-width': 6, 'line-opacity': 1 }
+  });
+
+  // Source for short trailing green
+  map.addSource('trailer', { type:'geojson', data: { type:'FeatureCollection', features:[] } });
+  map.addLayer({ id:'trailer-line', type:'line', source:'trailer',
+    paint:{ 'line-color':'#00CC33','line-width':6,'line-opacity':1 }
+  });
+
+  // Ready: populate routes list
+  listSavedRoutes();
+});
+
+/* ===========================
+   UI: start / stop recording
+   =========================== */
 startBtn.onclick = () => {
-  if (!('geolocation' in navigator)) { alert('Geolocation stöds inte.'); return; }
+  if (!('geolocation' in navigator)) { alert('Geolocation stöds inte i din webbläsare.'); return; }
   recording = true;
   currentPoints = [];
-  fullLayer.setLatLngs([]);
-  segmentsLayer.clearLayers();
-  shortGreenLayer.clearLayers();
-  startBtn.disabled = true;
-  stopBtn.disabled = false;
-  saveBtn.disabled = true;
+  updateFullRouteOnMap([]);
+  updateTrailer([]);
+  updateSegmentsOnMap([]);
+  startBtn.disabled = true; stopBtn.disabled = false; saveBtn.disabled = true;
   routeNameInput.value = routeNameInput.value || '';
 
-  watchId = navigator.geolocation.watchPosition(pos=>{
-    const pt = { lat: pos.coords.latitude, lon: pos.coords.longitude, timestamp: pos.timestamp||Date.now() };
+  watchId = navigator.geolocation.watchPosition(pos => {
+    const pt = { lat: pos.coords.latitude, lon: pos.coords.longitude, timestamp: pos.timestamp || Date.now() };
     currentPoints.push(pt);
-    fullLayer.addLatLng([pt.lat, pt.lon]);
-
-    shortGreenLayer.clearLayers();
-    if (currentPoints.length>1) {
-      const p1=currentPoints[currentPoints.length-2], p2=currentPoints[currentPoints.length-1];
-      L.polyline([[p1.lat,p1.lon],[p2.lat,p2.lon]], { color:'#00AA00', weight:6 }).addTo(shortGreenLayer);
+    updateFullRouteOnMap(currentPoints);
+    // tiny green latest segment
+    if (currentPoints.length > 1) {
+      updateTrailer([currentPoints[currentPoints.length-2], currentPoints[currentPoints.length-1]]);
     }
-    map.setView([pt.lat,pt.lon], map.getZoom(), { animate:true, duration:0.2 });
-  }, err=>console.error(err), { enableHighAccuracy:true, maximumAge:0, timeout:10000 });
+    if (autoFollow) {
+      map.easeTo({ center: [pt.lon, pt.lat], duration: 300 });
+    }
+  }, err => console.error('watchPosition err', err), { enableHighAccuracy:true, maximumAge:0, timeout:10000 });
 };
 
 stopBtn.onclick = () => {
-  if (watchId!==null) navigator.geolocation.clearWatch(watchId);
-  watchId = null;
-  recording = false;
-  startBtn.disabled = false;
-  stopBtn.disabled = true;
-  saveBtn.disabled = currentPoints.length<2;
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  watchId = null; recording = false;
+  startBtn.disabled = false; stopBtn.disabled = true;
+  saveBtn.disabled = currentPoints.length < 2;
   alert('Inspelning stoppad. Punkter: ' + currentPoints.length);
 };
 
-/* ---------- TOKEN ---------- */
+/* ===========================
+   Update Map sources
+   =========================== */
+function updateFullRouteOnMap(points){
+  const coords = points.map(p => [p.lon, p.lat]);
+  const geo = { type:'FeatureCollection', features: [ { type:'Feature', geometry:{ type:'LineString', coordinates: coords }, properties:{} } ] };
+  const src = map.getSource('full-route');
+  if (src) src.setData(geo);
+}
+
+function updateSegmentsOnMap(segFeatures){
+  const geo = { type:'FeatureCollection', features: segFeatures };
+  const src = map.getSource('segments');
+  if (src) src.setData(geo);
+}
+
+function updateTrailer(points){
+  if (!points || points.length < 2) {
+    const src = map.getSource('trailer'); if (src) src.setData({ type:'FeatureCollection', features:[] }); return;
+  }
+  const coords = points.map(p => [p.lon, p.lat]);
+  const geo = { type:'FeatureCollection', features: [ { type:'Feature', geometry:{ type:'LineString', coordinates: coords }, properties:{} } ] };
+  const src = map.getSource('trailer'); if (src) src.setData(geo);
+}
+
+/* ===========================
+   GitHub helpers
+   =========================== */
+function updateTokenUI(){ tokenStatus.textContent = pat ? 'Token: satt (sessionStorage)' : 'Token: (ej satt)'; }
+
 setTokenBtn.onclick = () => {
   const t = prompt('Klistra in din GitHub Personal Access Token (public_repo scope för publika repo):');
   if (!t) return;
@@ -128,166 +251,275 @@ setTokenBtn.onclick = () => {
   sessionStorage.setItem('gh_pat', pat);
   updateTokenUI();
 };
-function updateTokenUI(){
-  tokenStatus.textContent = pat ? 'Token: satt (sessionStorage)' : 'Token: (ej satt)';
-}
 
-/* ---------- GitHub API hjälp ---------- */
-function ghApi(path, method='GET', body=null, accept='application/vnd.github.v3+json'){
+async function ghApi(path, method='GET', body=null){
   const url = `https://api.github.com${path}`;
-  const headers = { Accept: accept };
+  const headers = { Accept:'application/vnd.github.v3+json' };
   if (pat) headers.Authorization = 'token ' + pat;
   if (body) headers['Content-Type'] = 'application/json';
-  return fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined })
-    .then(async r => {
-      if (!r.ok) {
-        const txt = await r.text();
-        throw new Error(`GitHub API fel ${r.status}: ${txt}`);
-      }
-      return r.json().catch(()=>null);
-    });
+  const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`GitHub API fel ${res.status}: ${txt}`);
+  }
+  return res.json().catch(()=>null);
 }
 
-/* ---------- Lista rutter i routes/ ---------- */
+/* ===========================
+   List saved routes (routes/ folder)
+   =========================== */
 async function listSavedRoutes(){
+  routeSelect.innerHTML = '<option value="">(läser...)</option>';
   try {
     const path = `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${ROUTES_FOLDER}`;
     const data = await ghApi(path);
+    // data: array of files
     routeSelect.innerHTML = '<option value="">Välj rutt</option>';
+    // sort desc by name
     data.sort((a,b)=>b.name.localeCompare(a.name));
     data.forEach(f => {
-      const name = f.name.replace(/\.json$/,'');
       const opt = document.createElement('option');
-      opt.value = f.path;
-      opt.textContent = name;
+      opt.value = f.path; // unique path like routes/name_timestamp.json
+      opt.textContent = f.name.replace(/\.json$/,'');
       opt.dataset.sha = f.sha;
       routeSelect.appendChild(opt);
     });
-  } catch (e){
-    console.error('Kunde ej lista rutter:', e);
-    routeSelect.innerHTML = '<option value="">(routes/ saknas eller token ej satt)</option>';
+  } catch (e) {
+    console.warn('Could not list routes:', e);
+    routeSelect.innerHTML = '<option value="">(ingen routes/ funnen eller token ej satt)</option>';
   }
 }
-listSavedRoutes();
 
-/* ---------- Läs en rutt från path ---------- */
+/* ===========================
+   Load route content from GitHub
+   =========================== */
 async function loadRouteFromPath(path){
   try {
     const meta = await ghApi(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`);
-    const content = atob(meta.content.replace(/\n/g,''));
+    const content = fromBase64(meta.content.replace(/\n/g,'')); // decode base64
     return JSON.parse(content);
-  } catch (e){
-    console.error(e);
+  } catch (e) {
     alert('Kunde inte ladda rutt: ' + e.message);
     return null;
   }
 }
 
-/* ---------- Spara rutt i routes/ som ny fil ---------- */
+/* ===========================
+   Save route to GitHub (creates file routes/<name>_<ts>.json)
+   =========================== */
 async function saveRouteToGitHub(name, points){
   if (!pat) { alert('Sätt GitHub-token först.'); return; }
-  if (!name) { alert('Sätt ett namn på rutten.'); return; }
-  const filenameSafe = name.replace(/[^a-zA-Z0-9-_ ]/g,'').replace(/\s+/g,'_');
-  const timestamp = Date.now();
-  const path = `${ROUTES_FOLDER}/${filenameSafe}_${timestamp}.json`;
-  const content = btoa(JSON.stringify({ name, created: timestamp, points }, null, 2));
-  const message = `Add route ${name} (${timestamp})`;
+  if (!name) { alert('Ange namn på rutten.'); return; }
+  const safe = name.replace(/[^a-zA-Z0-9-_ ]/g,'').replace(/\s+/g,'_');
+  const ts = Date.now();
+  const path = `${ROUTES_FOLDER}/${safe}_${ts}.json`;
+  const data = { name, created: ts, points };
+  const content = toBase64(JSON.stringify(data, null, 2));
+  const message = `Add route ${name} (${ts})`;
   try {
     await ghApi(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`, 'PUT', {
       message, content, branch: 'main'
     });
-    alert('Rutt sparad: ' + path);
+    alert('Rutt sparad som ' + path);
     await listSavedRoutes();
-  } catch (e){
-    console.error('Save error', e);
-    alert('Kunde inte spara rutt: ' + e.message);
+  } catch (e) {
+    alert('Kunde inte spara: ' + e.message);
   }
 }
 
-/* ---------- Ladda vald rutt och visa geometry + instruktioner ---------- */
-loadBtn.onclick = async () => {
-  const selected = routeSelect.value;
-  if (!selected) { alert('Välj en rutt'); return; }
-  const raw = await loadRouteFromPath(selected);
-  if (!raw || !raw.points) return;
-  fullLayer.setLatLngs(raw.points.map(p=>[p.lat,p.lon]));
-  map.fitBounds(fullLayer.getBounds(), { padding:[30,30] });
+/* ===========================
+   Draw segments (purple/green) based on completedSegments
+   =========================== */
+function recomputeAndDrawSegments(){
+  if (!loadedRoute || !loadedRoute.points || loadedRoute.points.length < 2) {
+    updateSegmentsOnMap([]);
+    return;
+  }
+  const pts = loadedRoute.points;
+  const features = [];
+  for (let i = 0; i < pts.length - 1; i++){
+    const a = pts[i], b = pts[i+1];
+    const color = completedSegments[i] ? '#00AA00' : '#6A0DAD';
+    features.push({
+      type:'Feature',
+      geometry: { type:'LineString', coordinates: [ [a.lon,a.lat], [b.lon,b.lat] ] },
+      properties: { color }
+    });
+  }
+  updateSegmentsOnMap(features);
+}
 
-  // OSRM turn-by-turn
+/* ===========================
+   Live matching to loaded route
+   - persistent completedSegments stored per loadedRoutePath in localStorage
+   - firstFix establishes initial progress: mark all segments before nearest point as completed
+   =========================== */
+function storageKeyForRoute(path){
+  return 'completedSegments_' + path;
+}
+
+function loadCompletedFromStorage(path){
+  const key = storageKeyForRoute(path);
+  const raw = localStorage.getItem(key);
+  if (raw) {
+    try { return JSON.parse(raw); } catch(e){ return []; }
+  }
+  return [];
+}
+
+function saveCompletedToStorage(path, arr){
+  const key = storageKeyForRoute(path);
+  localStorage.setItem(key, JSON.stringify(arr));
+}
+
+/* Handle live position */
+function handleLivePosition(lat, lon){
+  if (!loadedRoute || !loadedRoute.points || loadedRoute.points.length < 2) return;
+  // nearest point index
+  let bestIdx = 0, bestDist = Infinity;
+  for (let i=0;i<loadedRoute.points.length;i++){
+    const d = haversine({lat,lon}, loadedRoute.points[i]);
+    if (d < bestDist){ bestDist = d; bestIdx = i; }
+  }
+
+  // first fix: mark all segments before bestIdx as completed (so you can jump in mid-route)
+  if (!firstFixEstablished){
+    for (let i=0;i<bestIdx;i++) completedSegments[i] = true;
+    firstFixEstablished = true;
+  }
+
+  // Progress forward: mark the segment before bestIdx as completed (if bestIdx>0)
+  if (bestIdx > 0) completedSegments[bestIdx - 1] = true;
+
+  // Persist
+  if (loadedRoutePath) saveCompletedToStorage(loadedRoutePath, completedSegments);
+
+  // draw
+  recomputeAndDrawSegments();
+
+  // draw short trailer from matched point -> current
+  const matched = loadedRoute.points[bestIdx];
+  updateTrailer([ { lat: matched.lat, lon: matched.lon }, { lat, lon } ]);
+}
+
+/* ===========================
+   Load selected route and prepare local progress
+   =========================== */
+loadBtn.onclick = async () => {
+  const sel = routeSelect.value;
+  if (!sel) { alert('Välj en rutt först'); return; }
+  const raw = await loadRouteFromPath(sel);
+  if (!raw) return;
+  loadedRoute = raw;
+  loadedRoutePath = sel;
+
+  // Draw full route as a baseline
+  const coords = loadedRoute.points.map(p => [p.lon,p.lat]);
+  updateFullRouteOnMap( loadedRoute.points );
+  map.fitBounds(coords, { padding:20 });
+
+  // Reset UI / trailer / segments
+  shortGreenLayer.setData ? null : null;
+  updateTrailer([]);
+  // Load persisted completedSegments if present; else initialize
+  completedSegments = loadCompletedFromStorage(loadedRoutePath) || [];
+  // ensure length = points.length - 1
+  if (completedSegments.length < loadedRoute.points.length - 1) {
+    const diff = (loadedRoute.points.length - 1) - completedSegments.length;
+    for (let i=0;i<diff;i++) completedSegments.push(false);
+  }
+  firstFixEstablished = false; // will be set on first GPS fix
+  recomputeAndDrawSegments();
+
+  // fetch OSRM turn-by-turn (best-effort)
   try {
-    const coords = raw.points.map(p=>`${p.lon},${p.lat}`).join(';');
-    const url = `${OSRM_BASE}/route/v1/driving/${coords}?steps=true&geometries=geojson&overview=full`;
+    const coordsStr = loadedRoute.points.map(p => `${p.lon},${p.lat}`).join(';');
+    const url = `${OSRM_BASE}/route/v1/driving/${coordsStr}?steps=true&geometries=geojson&overview=full`;
     const r = await fetch(url);
     const data = await r.json();
-    if (data.routes && data.routes.length) {
+    instrList.innerHTML = '';
+    if (data.routes && data.routes.length){
       const steps = data.routes[0].legs.flatMap(l=>l.steps);
-      instrList.innerHTML = '';
       steps.forEach((s,i)=>{
-        const div = document.createElement('div');
-        div.className = 'route-item';
-        div.innerHTML = `<strong>${i+1}. ${s.maneuver.instruction || s.name || ''}</strong><div>${Math.round(s.distance)} m</div>`;
-        instrList.appendChild(div);
+        const el = document.createElement('div');
+        el.className = 'instrItem';
+        el.innerHTML = `<strong>${i+1}. ${s.maneuver.instruction || s.name || ''}</strong><div style="color:var(--muted)">${Math.round(s.distance)} m • ${Math.round(s.duration)} s</div>`;
+        instrList.appendChild(el);
       });
-    } else instrList.textContent = 'Inga instruktioner från OSRM';
-  } catch (e) {
-    instrList.textContent = 'OSRM fel: ' + e.message;
+    } else {
+      instrList.textContent = 'OSRM returnerade inga instruktioner (kontrollera rutten).';
+    }
+  } catch (e){
+    instrList.textContent = 'Fel vid hämtning av instruktioner: ' + e.message;
     console.error(e);
   }
-
-  // Prepare live coloring
-  window.loadedRoutePoints = raw.points;
-  segmentsLayer.clearLayers();
-  shortGreenLayer.clearLayers();
-  drawSegmentsAccordingToProgress(0);
 };
 
-/* ---------- Render segments: lila/green beroende på progress index ---------- */
-function drawSegmentsAccordingToProgress(progressIndex){
-  if (!window.loadedRoutePoints) return;
-  segmentsLayer.clearLayers();
-  const pts = window.loadedRoutePoints;
-  for (let i=0;i<pts.length-1;i++){
-    const a = pts[i], b = pts[i+1];
-    const color = i <= progressIndex ? '#00AA00' : '#6A0DAD';
-    L.polyline([[a.lat,a.lon],[b.lat,b.lon]], { color, weight:5 }).addTo(segmentsLayer);
-  }
-}
-
-/* ---------- Live matching mot laddad rutt ---------- */
-function handleLivePosition(lat,lon){
-  if (!window.loadedRoutePoints || window.loadedRoutePoints.length<2) return;
-  let bestIdx = 0, bestDist = Infinity;
-  for (let i=0;i<window.loadedRoutePoints.length;i++){
-    const d = haversine({lat,lon}, window.loadedRoutePoints[i]);
-    if (d < bestDist) { bestDist = d; bestIdx = i; }
-  }
-  const segIndex = Math.max(0, bestIdx-1);
-  drawSegmentsAccordingToProgress(segIndex);
-  shortGreenLayer.clearLayers();
-  const matched = window.loadedRoutePoints[bestIdx];
-  L.polyline([[matched.lat, matched.lon],[lat, lon]], { color:'#00CC33', weight:6 }).addTo(shortGreenLayer);
-}
-
-/* ---------- Save button handler ---------- */
-document.getElementById('saveBtn').onclick = async () => {
+/* ===========================
+   Save button
+   =========================== */
+saveBtn.onclick = async () => {
   if (!currentPoints || currentPoints.length < 2) { alert('Inspelad rutt måste ha minst två punkter'); return; }
   const name = routeNameInput.value.trim();
   if (!name) { alert('Sätt ett namn på rutten'); return; }
   await saveRouteToGitHub(name, currentPoints);
+  // refresh list
+  await listSavedRoutes();
 };
 
-/* ---------- Live watch for coloring loaded route (always active) ---------- */
-let liveWatchId = null;
+/* ===========================
+   Reset progress for loaded route
+   =========================== */
+resetProgressBtn.onclick = () => {
+  if (!loadedRoutePath) { alert('Ladda en rutt först'); return; }
+  if (!confirm('Resetta all progress för denna rutt? (Detta raderar sparad progress i din webbläsare)')) return;
+  completedSegments = new Array( Math.max(0, (loadedRoute.points.length - 1)) ).fill(false);
+  saveCompletedToStorage(loadedRoutePath, completedSegments);
+  recomputeAndDrawSegments();
+  firstFixEstablished = false;
+  updateTrailer([]);
+};
+
+/* ===========================
+   Route selection refresh
+   =========================== */
+routeSelect.addEventListener('click', ()=> listSavedRoutes());
+
+/* ===========================
+   Auto follow
+   =========================== */
+followBtn.onclick = () => {
+  autoFollow = !autoFollow;
+  followBtn.textContent = autoFollow ? 'Följ: På' : 'Följ: Av';
+};
+
+/* ===========================
+   Always-on live watch for coloring loaded route
+   - This runs whether recording or not
+   =========================== */
 if ('geolocation' in navigator) {
   liveWatchId = navigator.geolocation.watchPosition(pos=>{
     const lat = pos.coords.latitude, lon = pos.coords.longitude;
-    map.setView([lat,lon], map.getZoom(), { animate:true, duration:0.2 });
-    handleLivePosition(lat,lon);
-  }, err=>console.warn('live watch err',err), { enableHighAccuracy:true, maximumAge:0, timeout:10000 });
+    // If a route is loaded, match and mark progress
+    if (loadedRoute) handleLivePosition(lat, lon);
+    // Keep map following user if autopathing is on and not recording (or also when recording)
+    if (autoFollow) map.easeTo({ center: [lon, lat], duration: 300 });
+  }, err => {
+    console.warn('Live watch error', err);
+  }, { enableHighAccuracy:true, maximumAge:0, timeout:10000 });
 }
 
-/* ---------- Utility: refresh routes list periodically ---------- */
-setInterval(()=>{ listSavedRoutes(); }, 60_000);
+/* ===========================
+   Initial listing
+   =========================== */
+setTimeout(()=>{ listSavedRoutes(); }, 600);
+
+/* ===========================
+   Expose for debugging (optional)
+   =========================== */
+window._gps = {
+  saveRouteToGitHub, listSavedRoutes, loadRouteFromPath, recomputeAndDrawSegments
+};
 
 </script>
 </body>
