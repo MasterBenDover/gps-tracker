@@ -2,6 +2,133 @@
 <html lang="sv">
 <head>
   <meta charset="utf-8" />
+  <title>GPS Tracker — Modern UI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
+
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #0f1720;
+      --accent: #6A0DAD;
+      --green: #00AA00;
+      --muted: #9aa7b2;
+      --glass: rgba(255, 255, 255, 0.04);
+      --border: rgba(255, 255, 255, 0.08);
+      --hover: rgba(255,255,255,0.12);
+    }
+
+    html, body {
+      height: 100%; margin: 0;
+      font-family: Inter, Arial, sans-serif;
+      background: var(--bg); color: #e6eef6;
+    }
+
+    #map { position: fixed; inset: 0; }
+
+    /* ===== Modern Glass Panel ===== */
+    .panel {
+      position: absolute;
+      top: 12px; left: 12px;
+      background: var(--glass);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--border);
+      padding: 12px;
+      border-radius: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+
+    /* ===== Buttons: smooth + animated ===== */
+    button, input, select {
+      background: var(--glass);
+      border: 1px solid var(--border);
+      color: #e6eef6;
+      padding: 8px 12px;
+      font-size: 14px;
+      border-radius: 10px;
+      transition: 0.25s ease;
+    }
+
+    button:hover {
+      background: var(--hover);
+      transform: translateY(-1px);
+    }
+
+    button:active {
+      transform: scale(0.92);
+      background: var(--accent);
+      border-color: var(--accent);
+      box-shadow: 0 0 12px var(--accent);
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      transform: none;
+    }
+
+    /* ===== Right instruction panel ===== */
+    #instrPanel {
+      position: absolute;
+      right: 12px; top: 12px;
+      width: 330px;
+      max-height: 70vh;
+      overflow-y: auto;
+      background: var(--glass);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--border);
+      padding: 14px;
+      border-radius: 14px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+
+    .instrTitle {
+      font-size: 16px; font-weight: 600; margin-bottom: 8px;
+    }
+
+    .instrItem {
+      padding: 8px 4px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .status { font-size: 13px; color: var(--muted); }
+    .note { font-size: 12px; color: #8fa3ad; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="panel" id="topbar">
+    <button id="startBtn">Starta inspelning</button>
+    <button id="stopBtn" disabled>Stoppa inspelning</button>
+
+    <input id="routeName" placeholder="Namn på rutt" />
+    <button id="saveBtn" disabled>Spara rutt</button>
+
+    <button id="setTokenBtn">GitHub-token</button>
+    <span id="tokenStatus" class="status">Token: ej satt</span>
+
+    <select id="routeSelect"></select>
+    <button id="loadBtn">Ladda rutt</button>
+
+    <button id="resetProgressBtn">Reset</button>
+    <button id="followBtn">Följ: På</button>
+  </div>
+
+  <div id="instrPanel">
+    <div class="instrTitle">Turn-by-turn</div>
+    <div id="instrList">Ingen rutt vald</div>
+    <div class="note">Gröna segment är dina framsteg i denna session.</div>
+  </div>
+
+<script>
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
   <title>GPS Tracker — MasterBenDover (Dark)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <!-- MapLibre GL -->
