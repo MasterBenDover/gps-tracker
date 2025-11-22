@@ -10,162 +10,36 @@
 
   <style>
     :root{
-      --bg:#0a0e13;
-      --panel:#12181f;
-      --muted:#94a3b8;
-      --accent:#8b5cf6;
-      --accent-hover:#a78bfa;
-      --green:#10b981;
-      --green-hover:#34d399;
-      --panel-border: rgba(139,92,246,0.1);
-      --glass: rgba(139,92,246,0.05);
+      --bg:#0b0f14;
+      --panel:#0f1720;
+      --muted:#9aa7b2;
+      --accent:#6A0DAD; /* mörklila */
+      --green:#00AA00;
+      --panel-border: rgba(255,255,255,0.04);
+      --glass: rgba(255,255,255,0.03);
     }
-    html,body{height:100%;margin:0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:#f1f5f9}
-    #map{position:fixed;inset:0;z-index:1;}
-    
+    html,body{height:100%;margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:var(--bg);color:#e6eef6}
+    #map{position:fixed;inset:0;}
     .topbar{
-      position: absolute; left:16px; top:16px; z-index: 999;
-      background: rgba(18,24,31,0.95);
-      backdrop-filter: blur(20px);
+      position: absolute; left:12px; top:12px; z-index: 999;
+      background: linear-gradient(180deg,var(--panel), rgba(10,14,18,0.85));
       border:1px solid var(--panel-border);
-      padding:14px 16px; border-radius:16px; 
-      box-shadow:0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(139,92,246,0.05);
-      display:flex; gap:10px; align-items:center; flex-wrap:wrap; min-width:380px;
+      padding:10px; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,0.6);
+      display:flex; gap:8px; align-items:center; flex-wrap:wrap; min-width:360px;
     }
-    
-    button,input,select{ 
-      background:var(--glass); 
-      border:1px solid rgba(139,92,246,0.15); 
-      color:#f1f5f9; 
-      padding:10px 16px; 
-      border-radius:10px; 
-      font-size:14px;
-      font-weight:500;
-      cursor:pointer;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-      position:relative;
-      z-index:1;
-    }
-    
-    button:hover:not(:disabled){
-      background:rgba(139,92,246,0.12);
-      border-color:rgba(139,92,246,0.3);
-      transform:translateY(-1px);
-      box-shadow:0 4px 12px rgba(139,92,246,0.2);
-    }
-    
-    button:active:not(:disabled){
-      transform:translateY(0) scale(0.98);
-      box-shadow:0 2px 8px rgba(139,92,246,0.3);
-    }
-    
-    @keyframes ripple {
-      to {
-        width: 300px;
-        height: 300px;
-        opacity: 0;
-      }
-    }
-    
-    button:disabled{
-      opacity:0.4;
-      cursor:not-allowed;
-      transform:none;
-    }
-    
-    input{
-      min-width:160px;
-      background:rgba(139,92,246,0.03);
-      transition: all 0.2s ease;
-    }
-    
-    input:focus{
-      outline:none;
-      border-color:var(--accent);
-      background:rgba(139,92,246,0.08);
-      box-shadow:0 0 0 3px rgba(139,92,246,0.1);
-    }
-    
-    select{
-      cursor:pointer;
-    }
-    
-    select:hover{
-      border-color:rgba(139,92,246,0.3);
-    }
-    
-    .small{font-size:13px;padding:8px 14px}
-    
+    button,input,select{ background:var(--glass); border:1px solid rgba(255,255,255,0.04); color:#e6eef6; padding:8px 10px; border-radius:8px; font-size:14px }
+    input{min-width:160px}
+    .small{font-size:13px;padding:6px 8px}
     #instrPanel{
-      position:absolute; right:16px; top:16px; z-index:999;
-      width:340px; max-height:70vh; overflow:auto;
-      background:rgba(18,24,31,0.95);
-      backdrop-filter: blur(20px);
-      border:1px solid var(--panel-border); 
-      border-radius:16px; 
-      padding:16px; 
-      color:var(--muted);
-      box-shadow:0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(139,92,246,0.05);
+      position:absolute; right:12px; top:12px; z-index:999;
+      width:320px; max-height:70vh; overflow:auto;
+      background:linear-gradient(180deg,var(--panel), rgba(10,14,18,0.9));
+      border:1px solid var(--panel-border); border-radius:10px; padding:10px; color:var(--muted);
     }
-    
-    .instrTitle{
-      color:#fff;
-      font-weight:600;
-      font-size:16px;
-      margin-bottom:12px;
-      padding-bottom:12px;
-      border-bottom:1px solid rgba(139,92,246,0.1);
-    }
-    
-    .instrItem{
-      padding:12px;
-      border-bottom:1px solid rgba(139,92,246,0.05); 
-      color:var(--muted);
-      transition: background 0.2s ease;
-      border-radius:8px;
-      margin-bottom:4px;
-    }
-    
-    .instrItem:hover{
-      background:rgba(139,92,246,0.05);
-    }
-    
-    .status{
-      font-size:13px;
-      color:var(--muted);
-      margin-left:8px;
-      padding:4px 10px;
-      background:rgba(139,92,246,0.1);
-      border-radius:6px;
-    }
-    
-    .note{
-      font-size:12px;
-      color:#64748b;
-      margin-top:12px;
-      padding:10px;
-      background:rgba(139,92,246,0.03);
-      border-radius:8px;
-      border-left:3px solid rgba(139,92,246,0.3);
-    }
-    
-    #instrPanel::-webkit-scrollbar{
-      width:8px;
-    }
-    
-    #instrPanel::-webkit-scrollbar-track{
-      background:rgba(139,92,246,0.03);
-      border-radius:4px;
-    }
-    
-    #instrPanel::-webkit-scrollbar-thumb{
-      background:rgba(139,92,246,0.2);
-      border-radius:4px;
-    }
-    
-    #instrPanel::-webkit-scrollbar-thumb:hover{
-      background:rgba(139,92,246,0.3);
-    }
+    .instrTitle{color:#fff;font-weight:600;margin-bottom:8px}
+    .instrItem{padding:8px;border-bottom:1px dashed rgba(255,255,255,0.03); color:var(--muted)}
+    .status{font-size:13px;color:var(--muted);margin-left:6px}
+    .note{font-size:12px;color:#8fa3ad;margin-top:6px}
   </style>
 </head>
 <body>
@@ -199,25 +73,31 @@
   </div>
 
 <script>
-/* KONFIGURATION */
+/* ===========================
+   KONFIGURATION (ändra ej)
+   =========================== */
 const GITHUB_OWNER = 'MasterBenDover';
 const GITHUB_REPO  = 'gps-tracker';
 const ROUTES_FOLDER = 'routes';
 const OSRM_BASE = 'https://router.project-osrm.org';
 
-/* GLOBAL STATE */
+/* ===========================
+   GLOBAL STATE
+   =========================== */
 let pat = sessionStorage.getItem('gh_pat') || null;
 let recording = false;
 let watchId = null;
-let currentPoints = [];
-let loadedRoute = null;
-let loadedRoutePath = null;
-let completedSegments = [];
+let currentPoints = []; // när vi spelar in
+let loadedRoute = null; // objekt från GitHub: {name,created,points}
+let loadedRoutePath = null; // repo path (unik)
+let completedSegments = []; // boolean array per segment index
 let firstFixEstablished = false;
 let liveWatchId = null;
 let autoFollow = true;
 
-/* MAPLIBRE INIT */
+/* ===========================
+   MAPLIBRE INIT
+   =========================== */
 const map = new maplibregl.Map({
   container: 'map',
   style: {
@@ -237,9 +117,12 @@ const map = new maplibregl.Map({
   zoom: 13
 });
 
+// Add default zoom controls (top-left)
 map.addControl(new maplibregl.NavigationControl(), 'top-left');
 
-/* UI REFS */
+/* ===========================
+   UI REFS
+   =========================== */
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const saveBtn = document.getElementById('saveBtn');
@@ -254,7 +137,9 @@ const followBtn = document.getElementById('followBtn');
 
 updateTokenUI();
 
-/* HELPERS */
+/* ===========================
+   HELPERS
+   =========================== */
 function toBase64(str){ return btoa(unescape(encodeURIComponent(str))); }
 function fromBase64(b64){ return decodeURIComponent(escape(atob(b64))); }
 
@@ -268,110 +153,73 @@ function haversine(a,b){
   return R*c;
 }
 
-function createRipple(e) {
-  const button = e.currentTarget;
-  const ripple = document.createElement('span');
-  const rect = button.getBoundingClientRect();
-  const size = Math.max(rect.width, rect.height);
-  const x = e.clientX - rect.left - size / 2;
-  const y = e.clientY - rect.top - size / 2;
-  
-  ripple.style.cssText = `
-    position: absolute;
-    width: ${size}px;
-    height: ${size}px;
-    left: ${x}px;
-    top: ${y}px;
-    background: rgba(139,92,246,0.4);
-    border-radius: 50%;
-    pointer-events: none;
-    animation: ripple 0.6s ease-out;
-  `;
-  
-  button.appendChild(ripple);
-  setTimeout(() => ripple.remove(), 600);
-}
-
-document.querySelectorAll('button').forEach(btn => {
-  btn.addEventListener('click', createRipple);
-});
-
-/* VECTOR LAYERS */
+/* ===========================
+   VECTOR LAYERS (MapLibre sources)
+   =========================== */
 map.on('load', () => {
+  // Source + layer for full route (single LineString)
   map.addSource('full-route', { type:'geojson', data: { type:'FeatureCollection', features:[] } });
   map.addLayer({ id:'full-route-line', type:'line', source:'full-route',
-    paint: { 'line-color': '#8b5cf6', 'line-width': 4, 'line-opacity': 0.95 }
+    paint: { 'line-color': '#6A0DAD', 'line-width': 4, 'line-opacity': 0.95 }
   });
 
+  // Source for segments (we will push individual segment features with color prop)
   map.addSource('segments', { type:'geojson', data: { type:'FeatureCollection', features:[] } });
   map.addLayer({ id:'segments-line', type:'line', source:'segments',
     paint: { 'line-color': ['get','color'], 'line-width': 6, 'line-opacity': 1 }
   });
 
+  // Source for short trailing green
   map.addSource('trailer', { type:'geojson', data: { type:'FeatureCollection', features:[] } });
   map.addLayer({ id:'trailer-line', type:'line', source:'trailer',
-    paint:{ 'line-color':'#10b981','line-width':6,'line-opacity':1 }
+    paint:{ 'line-color':'#00CC33','line-width':6,'line-opacity':1 }
   });
 
+  // Ready: populate routes list
   listSavedRoutes();
 });
 
-/* START / STOP RECORDING */
-startBtn.addEventListener('click', () => {
-  if (!('geolocation' in navigator)) { 
-    alert('Geolocation stöds inte i din webbläsare.'); 
-    return; 
-  }
+/* ===========================
+   UI: start / stop recording
+   =========================== */
+startBtn.onclick = () => {
+  if (!('geolocation' in navigator)) { alert('Geolocation stöds inte i din webbläsare.'); return; }
   recording = true;
   currentPoints = [];
   updateFullRouteOnMap([]);
   updateTrailer([]);
   updateSegmentsOnMap([]);
-  startBtn.disabled = true; 
-  stopBtn.disabled = false; 
-  saveBtn.disabled = true;
+  startBtn.disabled = true; stopBtn.disabled = false; saveBtn.disabled = true;
   routeNameInput.value = routeNameInput.value || '';
 
   watchId = navigator.geolocation.watchPosition(pos => {
-    const pt = { 
-      lat: pos.coords.latitude, 
-      lon: pos.coords.longitude, 
-      timestamp: pos.timestamp || Date.now() 
-    };
+    const pt = { lat: pos.coords.latitude, lon: pos.coords.longitude, timestamp: pos.timestamp || Date.now() };
     currentPoints.push(pt);
     updateFullRouteOnMap(currentPoints);
-    
+    // tiny green latest segment
     if (currentPoints.length > 1) {
       updateTrailer([currentPoints[currentPoints.length-2], currentPoints[currentPoints.length-1]]);
     }
     if (autoFollow) {
       map.easeTo({ center: [pt.lon, pt.lat], duration: 300 });
     }
-  }, err => console.error('watchPosition err', err), 
-  { enableHighAccuracy:true, maximumAge:0, timeout:10000 });
-});
+  }, err => console.error('watchPosition err', err), { enableHighAccuracy:true, maximumAge:0, timeout:10000 });
+};
 
-stopBtn.addEventListener('click', () => {
+stopBtn.onclick = () => {
   if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-  watchId = null; 
-  recording = false;
-  startBtn.disabled = false; 
-  stopBtn.disabled = true;
+  watchId = null; recording = false;
+  startBtn.disabled = false; stopBtn.disabled = true;
   saveBtn.disabled = currentPoints.length < 2;
   alert('Inspelning stoppad. Punkter: ' + currentPoints.length);
-});
+};
 
-/* UPDATE MAP SOURCES */
+/* ===========================
+   Update Map sources
+   =========================== */
 function updateFullRouteOnMap(points){
   const coords = points.map(p => [p.lon, p.lat]);
-  const geo = { 
-    type:'FeatureCollection', 
-    features: coords.length > 0 ? [{ 
-      type:'Feature', 
-      geometry:{ type:'LineString', coordinates: coords }, 
-      properties:{} 
-    }] : []
-  };
+  const geo = { type:'FeatureCollection', features: [ { type:'Feature', geometry:{ type:'LineString', coordinates: coords }, properties:{} } ] };
   const src = map.getSource('full-route');
   if (src) src.setData(geo);
 }
@@ -384,46 +232,32 @@ function updateSegmentsOnMap(segFeatures){
 
 function updateTrailer(points){
   if (!points || points.length < 2) {
-    const src = map.getSource('trailer'); 
-    if (src) src.setData({ type:'FeatureCollection', features:[] }); 
-    return;
+    const src = map.getSource('trailer'); if (src) src.setData({ type:'FeatureCollection', features:[] }); return;
   }
   const coords = points.map(p => [p.lon, p.lat]);
-  const geo = { 
-    type:'FeatureCollection', 
-    features: [{ 
-      type:'Feature', 
-      geometry:{ type:'LineString', coordinates: coords }, 
-      properties:{} 
-    }]
-  };
-  const src = map.getSource('trailer'); 
-  if (src) src.setData(geo);
+  const geo = { type:'FeatureCollection', features: [ { type:'Feature', geometry:{ type:'LineString', coordinates: coords }, properties:{} } ] };
+  const src = map.getSource('trailer'); if (src) src.setData(geo);
 }
 
-/* GITHUB HELPERS */
-function updateTokenUI(){ 
-  tokenStatus.textContent = pat ? 'Token: satt' : 'Token: (ej satt)'; 
-}
+/* ===========================
+   GitHub helpers
+   =========================== */
+function updateTokenUI(){ tokenStatus.textContent = pat ? 'Token: satt (sessionStorage)' : 'Token: (ej satt)'; }
 
-setTokenBtn.addEventListener('click', () => {
-  const t = prompt('Klistra in din GitHub Personal Access Token:');
+setTokenBtn.onclick = () => {
+  const t = prompt('Klistra in din GitHub Personal Access Token (public_repo scope för publika repo):');
   if (!t) return;
   pat = t.trim();
   sessionStorage.setItem('gh_pat', pat);
   updateTokenUI();
-});
+};
 
 async function ghApi(path, method='GET', body=null){
   const url = `https://api.github.com${path}`;
   const headers = { Accept:'application/vnd.github.v3+json' };
   if (pat) headers.Authorization = 'token ' + pat;
   if (body) headers['Content-Type'] = 'application/json';
-  const res = await fetch(url, { 
-    method, 
-    headers, 
-    body: body ? JSON.stringify(body) : undefined 
-  });
+  const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`GitHub API fel ${res.status}: ${txt}`);
@@ -431,32 +265,38 @@ async function ghApi(path, method='GET', body=null){
   return res.json().catch(()=>null);
 }
 
-/* LIST SAVED ROUTES */
+/* ===========================
+   List saved routes (routes/ folder)
+   =========================== */
 async function listSavedRoutes(){
   routeSelect.innerHTML = '<option value="">(läser...)</option>';
   try {
     const path = `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${ROUTES_FOLDER}`;
     const data = await ghApi(path);
+    // data: array of files
     routeSelect.innerHTML = '<option value="">Välj rutt</option>';
+    // sort desc by name
     data.sort((a,b)=>b.name.localeCompare(a.name));
     data.forEach(f => {
       const opt = document.createElement('option');
-      opt.value = f.path;
+      opt.value = f.path; // unique path like routes/name_timestamp.json
       opt.textContent = f.name.replace(/\.json$/,'');
       opt.dataset.sha = f.sha;
       routeSelect.appendChild(opt);
     });
   } catch (e) {
     console.warn('Could not list routes:', e);
-    routeSelect.innerHTML = '<option value="">(ingen routes/ funnen)</option>';
+    routeSelect.innerHTML = '<option value="">(ingen routes/ funnen eller token ej satt)</option>';
   }
 }
 
-/* LOAD ROUTE */
+/* ===========================
+   Load route content from GitHub
+   =========================== */
 async function loadRouteFromPath(path){
   try {
     const meta = await ghApi(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`);
-    const content = fromBase64(meta.content.replace(/\n/g,''));
+    const content = fromBase64(meta.content.replace(/\n/g,'')); // decode base64
     return JSON.parse(content);
   } catch (e) {
     alert('Kunde inte ladda rutt: ' + e.message);
@@ -464,7 +304,9 @@ async function loadRouteFromPath(path){
   }
 }
 
-/* SAVE ROUTE */
+/* ===========================
+   Save route to GitHub (creates file routes/<name>_<ts>.json)
+   =========================== */
 async function saveRouteToGitHub(name, points){
   if (!pat) { alert('Sätt GitHub-token först.'); return; }
   if (!name) { alert('Ange namn på rutten.'); return; }
@@ -485,7 +327,9 @@ async function saveRouteToGitHub(name, points){
   }
 }
 
-/* DRAW SEGMENTS */
+/* ===========================
+   Draw segments (purple/green) based on completedSegments
+   =========================== */
 function recomputeAndDrawSegments(){
   if (!loadedRoute || !loadedRoute.points || loadedRoute.points.length < 2) {
     updateSegmentsOnMap([]);
@@ -495,17 +339,21 @@ function recomputeAndDrawSegments(){
   const features = [];
   for (let i = 0; i < pts.length - 1; i++){
     const a = pts[i], b = pts[i+1];
-    const color = completedSegments[i] ? '#10b981' : '#8b5cf6';
+    const color = completedSegments[i] ? '#00AA00' : '#6A0DAD';
     features.push({
       type:'Feature',
-      geometry: { type:'LineString', coordinates: [[a.lon,a.lat], [b.lon,b.lat]] },
+      geometry: { type:'LineString', coordinates: [ [a.lon,a.lat], [b.lon,b.lat] ] },
       properties: { color }
     });
   }
   updateSegmentsOnMap(features);
 }
 
-/* STORAGE */
+/* ===========================
+   Live matching to loaded route
+   - persistent completedSegments stored per loadedRoutePath in localStorage
+   - firstFix establishes initial progress: mark all segments before nearest point as completed
+   =========================== */
 function storageKeyForRoute(path){
   return 'completedSegments_' + path;
 }
@@ -524,33 +372,40 @@ function saveCompletedToStorage(path, arr){
   localStorage.setItem(key, JSON.stringify(arr));
 }
 
-/* HANDLE LIVE POSITION */
+/* Handle live position */
 function handleLivePosition(lat, lon){
   if (!loadedRoute || !loadedRoute.points || loadedRoute.points.length < 2) return;
-  
+  // nearest point index
   let bestIdx = 0, bestDist = Infinity;
   for (let i=0;i<loadedRoute.points.length;i++){
     const d = haversine({lat,lon}, loadedRoute.points[i]);
     if (d < bestDist){ bestDist = d; bestIdx = i; }
   }
 
+  // first fix: mark all segments before bestIdx as completed (so you can jump in mid-route)
   if (!firstFixEstablished){
     for (let i=0;i<bestIdx;i++) completedSegments[i] = true;
     firstFixEstablished = true;
   }
 
+  // Progress forward: mark the segment before bestIdx as completed (if bestIdx>0)
   if (bestIdx > 0) completedSegments[bestIdx - 1] = true;
 
+  // Persist
   if (loadedRoutePath) saveCompletedToStorage(loadedRoutePath, completedSegments);
 
+  // draw
   recomputeAndDrawSegments();
 
+  // draw short trailer from matched point -> current
   const matched = loadedRoute.points[bestIdx];
-  updateTrailer([{ lat: matched.lat, lon: matched.lon }, { lat, lon }]);
+  updateTrailer([ { lat: matched.lat, lon: matched.lon }, { lat, lon } ]);
 }
 
-/* LOAD BUTTON */
-loadBtn.addEventListener('click', async () => {
+/* ===========================
+   Load selected route and prepare local progress
+   =========================== */
+loadBtn.onclick = async () => {
   const sel = routeSelect.value;
   if (!sel) { alert('Välj en rutt först'); return; }
   const raw = await loadRouteFromPath(sel);
@@ -558,20 +413,25 @@ loadBtn.addEventListener('click', async () => {
   loadedRoute = raw;
   loadedRoutePath = sel;
 
+  // Draw full route as a baseline
   const coords = loadedRoute.points.map(p => [p.lon,p.lat]);
-  updateFullRouteOnMap(loadedRoute.points);
+  updateFullRouteOnMap( loadedRoute.points );
   map.fitBounds(coords, { padding:20 });
 
+  // Reset UI / trailer / segments
+  shortGreenLayer.setData ? null : null;
   updateTrailer([]);
+  // Load persisted completedSegments if present; else initialize
   completedSegments = loadCompletedFromStorage(loadedRoutePath) || [];
-  
+  // ensure length = points.length - 1
   if (completedSegments.length < loadedRoute.points.length - 1) {
     const diff = (loadedRoute.points.length - 1) - completedSegments.length;
     for (let i=0;i<diff;i++) completedSegments.push(false);
   }
-  firstFixEstablished = false;
+  firstFixEstablished = false; // will be set on first GPS fix
   recomputeAndDrawSegments();
 
+  // fetch OSRM turn-by-turn (best-effort)
   try {
     const coordsStr = loadedRoute.points.map(p => `${p.lon},${p.lat}`).join(';');
     const url = `${OSRM_BASE}/route/v1/driving/${coordsStr}?steps=true&geometries=geojson&overview=full`;
@@ -587,62 +447,80 @@ loadBtn.addEventListener('click', async () => {
         instrList.appendChild(el);
       });
     } else {
-      instrList.textContent = 'OSRM returnerade inga instruktioner.';
+      instrList.textContent = 'OSRM returnerade inga instruktioner (kontrollera rutten).';
     }
   } catch (e){
     instrList.textContent = 'Fel vid hämtning av instruktioner: ' + e.message;
     console.error(e);
   }
-});
+};
 
-/* SAVE BUTTON */
-saveBtn.addEventListener('click', async () => {
-  if (!currentPoints || currentPoints.length < 2) { 
-    alert('Inspelad rutt måste ha minst två punkter'); 
-    return; 
-  }
+/* ===========================
+   Save button
+   =========================== */
+saveBtn.onclick = async () => {
+  if (!currentPoints || currentPoints.length < 2) { alert('Inspelad rutt måste ha minst två punkter'); return; }
   const name = routeNameInput.value.trim();
   if (!name) { alert('Sätt ett namn på rutten'); return; }
   await saveRouteToGitHub(name, currentPoints);
+  // refresh list
   await listSavedRoutes();
-});
+};
 
-/* RESET PROGRESS */
-resetProgressBtn.addEventListener('click', () => {
+/* ===========================
+   Reset progress for loaded route
+   =========================== */
+resetProgressBtn.onclick = () => {
   if (!loadedRoutePath) { alert('Ladda en rutt först'); return; }
-  if (!confirm('Resetta all progress för denna rutt?')) return;
-  completedSegments = new Array(Math.max(0, (loadedRoute.points.length - 1))).fill(false);
+  if (!confirm('Resetta all progress för denna rutt? (Detta raderar sparad progress i din webbläsare)')) return;
+  completedSegments = new Array( Math.max(0, (loadedRoute.points.length - 1)) ).fill(false);
   saveCompletedToStorage(loadedRoutePath, completedSegments);
   recomputeAndDrawSegments();
   firstFixEstablished = false;
   updateTrailer([]);
-});
+};
 
-/* ROUTE SELECT REFRESH */
-routeSelect.addEventListener('click', () => listSavedRoutes());
+/* ===========================
+   Route selection refresh
+   =========================== */
+routeSelect.addEventListener('click', ()=> listSavedRoutes());
 
-/* FOLLOW TOGGLE */
-followBtn.addEventListener('click', () => {
+/* ===========================
+   Auto follow
+   =========================== */
+followBtn.onclick = () => {
   autoFollow = !autoFollow;
   followBtn.textContent = autoFollow ? 'Följ: På' : 'Följ: Av';
-});
+};
 
-/* LIVE WATCH */
+/* ===========================
+   Always-on live watch for coloring loaded route
+   - This runs whether recording or not
+   =========================== */
 if ('geolocation' in navigator) {
   liveWatchId = navigator.geolocation.watchPosition(pos=>{
     const lat = pos.coords.latitude, lon = pos.coords.longitude;
+    // If a route is loaded, match and mark progress
     if (loadedRoute) handleLivePosition(lat, lon);
+    // Keep map following user if autopathing is on and not recording (or also when recording)
     if (autoFollow) map.easeTo({ center: [lon, lat], duration: 300 });
   }, err => {
     console.warn('Live watch error', err);
   }, { enableHighAccuracy:true, maximumAge:0, timeout:10000 });
 }
 
-setTimeout(() => listSavedRoutes(), 600);
+/* ===========================
+   Initial listing
+   =========================== */
+setTimeout(()=>{ listSavedRoutes(); }, 600);
 
+/* ===========================
+   Expose for debugging (optional)
+   =========================== */
 window._gps = {
   saveRouteToGitHub, listSavedRoutes, loadRouteFromPath, recomputeAndDrawSegments
 };
+
 </script>
 </body>
 </html>
