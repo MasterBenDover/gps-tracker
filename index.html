@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <title>GPS Tracker — MasterBenDover</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif}
+    #map{height:68vh}
+    .controls{padding:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    button,select,input{padding:8px 10px;font-size:14px}
+    #instr{padding:8px;max-height:22vh;overflow:auto;border-top:1px solid #eee}
+    .route-item{padding:6px;border-bottom:1px solid #f0f0f0}
+    #tokenStatus{font-size:13px;color:#666}
+  </style>
+</head>
+<body>
+  <div class="controls">
+    <button id="startBtn">Starta inspelning</button>
+    <button id="stopBtn" disabled>Stoppa inspelning</button>
+
+    <label> Namn:
+      <input id="routeName" placeholder="Namn på rutt" />
+    </label>
+    <button id="saveBtn" disabled>Spara rutt till GitHub</button>
+
+    <button id="setTokenBtn">Sätt GitHub-token</button>
+    <span id="tokenStatus">Token: (ej satt)</span>
+
+    <label> Välj rutt:
+      <select id="routeSelect"><option value="">(ladda...)</option></select>
+    </label>
+    <button id="loadBtn">Ladda rutt</button>
+  </div>
+
+  <div id="map"></div>
+  <div id="instr"><strong>Turn-by-turn (OSRM):</strong><div id="instrList">Ingen rutt vald</div></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ---------- KONFIG för MasterBenDover ---------- */
+const GITHUB_OWNER = 'MasterBenDover';
+const GITHUB_REPO  = 'gps-tracker';
+const ROUTES_FOLDER = 'routes';
+const OSRM_BASE = 'https://router.project-osrm.org';
+
+/* ---------- STATE ---------- */
+let pat = sessionStorage.getItem('gh_pat') || null;
+let recording = false;
+let watchId = null;
+let currentPoints = [];
+let fullLayer=null, segmentsLayer=null, shortGreenLayer=null, map=null;
+
+/* ---------- INIT MAP ---------- */
+map = L.map('map').setView([59.33,18.06],13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+fullLayer = L.polyline([], { color:'#6A0DAD', weight:5, opacity:0.95}).addTo(map);
+segmentsLayer = L.layerGroup().addTo(map);
+shortGreenLayer = L.layerGroup().addTo(map);
+
+/* ---------- UI refs ---------- */
+const startBtn = document.getElementById('startBtn');
+const stopBtn  = document.getElementById('stopBtn');
+const saveBtn  = document.getElementById('saveBtn');
+const routeNameInput = document.getElementById('routeName');
+const tokenStatus = document.getElementById('tokenStatus');
+const setTokenBtn = document.getElementById('setTokenBtn');
+const routeSelect = document.getElementById('routeSelect');
+const loadBtn = document.getElementById('loadBtn');
+const instrList = document.getElementById('instrList');
+
+updateTokenUI();
+
+/* ---------- HJÄLP: haversine (m) ---------- */
+function haversine(a,b){
+  const R=6371000;
+  const toRad = d => d*Math.PI/180;
+  const dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon);
+  const lat1=toRad(a.lat), lat2=toRad(b.lat);
+  const sinDlat=Math.sin(dLat/2), sinDlon=Math.sin(dLon/2);
+  const c=2*Math.asin(Math.sqrt(sinDlat*sinDlat + Math.cos(lat1)*Math.cos(lat2)*sinDlon*sinDlon));
+  return R*c;
+}
+
+/* ---------- RECORDING ---------- */
+startBtn.onclick = () => {
+  if (!('geolocation' in navigator)) { alert('Geolocation stöds inte.'); return; }
+  recording = true;
+  currentPoints = [];
+  fullLayer.setLatLngs([]);
+  segmentsLayer.clearLayers();
+  shortGreenLayer.clearLayers();
+  startBtn.disabled = true;
+  stopBtn.disabled = false;
+  saveBtn.disabled = true;
+  routeNameInput.value = routeNameInput.value || '';
+
+  watchId = navigator.geolocation.watchPosition(pos=>{
+    const pt = { lat: pos.coords.latitude, lon: pos.coords.longitude, timestamp: pos.timestamp||Date.now() };
+    currentPoints.push(pt);
+    fullLayer.addLatLng([pt.lat, pt.lon]);
+
+    shortGreenLayer.clearLayers();
+    if (currentPoints.length>1) {
+      const p1=currentPoints[currentPoints.length-2], p2=currentPoints[currentPoints.length-1];
+      L.polyline([[p1.lat,p1.lon],[p2.lat,p2.lon]], { color:'#00AA00', weight:6 }).addTo(shortGreenLayer);
+    }
+    map.setView([pt.lat,pt.lon], map.getZoom(), { animate:true, duration:0.2 });
+  }, err=>console.error(err), { enableHighAccuracy:true, maximumAge:0, timeout:10000 });
+};
+
+stopBtn.onclick = () => {
+  if (watchId!==null) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+  recording = false;
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+  saveBtn.disabled = currentPoints.length<2;
+  alert('Inspelning stoppad. Punkter: ' + currentPoints.length);
+};
+
+/* ---------- TOKEN ---------- */
+setTokenBtn.onclick = () => {
+  const t = prompt('Klistra in din GitHub Personal Access Token (public_repo scope för publika repo):');
+  if (!t) return;
+  pat = t.trim();
+  sessionStorage.setItem('gh_pat', pat);
+  updateTokenUI();
+};
+function updateTokenUI(){
+  tokenStatus.textContent = pat ? 'Token: satt (sessionStorage)' : 'Token: (ej satt)';
+}
+
+/* ---------- GitHub API hjälp ---------- */
+function ghApi(path, method='GET', body=null, accept='application/vnd.github.v3+json'){
+  const url = `https://api.github.com${path}`;
+  const headers = { Accept: accept };
+  if (pat) headers.Authorization = 'token ' + pat;
+  if (body) headers['Content-Type'] = 'application/json';
+  return fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined })
+    .then(async r => {
+      if (!r.ok) {
+        const txt = await r.text();
+        throw new Error(`GitHub API fel ${r.status}: ${txt}`);
+      }
+      return r.json().catch(()=>null);
+    });
+}
+
+/* ---------- Lista rutter i routes/ ---------- */
+async function listSavedRoutes(){
+  try {
+    const path = `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${ROUTES_FOLDER}`;
+    const data = await ghApi(path);
+    routeSelect.innerHTML = '<option value="">Välj rutt</option>';
+    data.sort((a,b)=>b.name.localeCompare(a.name));
+    data.forEach(f => {
+      const name = f.name.replace(/\.json$/,'');
+      const opt = document.createElement('option');
+      opt.value = f.path;
+      opt.textContent = name;
+      opt.dataset.sha = f.sha;
+      routeSelect.appendChild(opt);
+    });
+  } catch (e){
+    console.error('Kunde ej lista rutter:', e);
+    routeSelect.innerHTML = '<option value="">(routes/ saknas eller token ej satt)</option>';
+  }
+}
+listSavedRoutes();
+
+/* ---------- Läs en rutt från path ---------- */
+async function loadRouteFromPath(path){
+  try {
+    const meta = await ghApi(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`);
+    const content = atob(meta.content.replace(/\n/g,''));
+    return JSON.parse(content);
+  } catch (e){
+    console.error(e);
+    alert('Kunde inte ladda rutt: ' + e.message);
+    return null;
+  }
+}
+
+/* ---------- Spara rutt i routes/ som ny fil ---------- */
+async function saveRouteToGitHub(name, points){
+  if (!pat) { alert('Sätt GitHub-token först.'); return; }
+  if (!name) { alert('Sätt ett namn på rutten.'); return; }
+  const filenameSafe = name.replace(/[^a-zA-Z0-9-_ ]/g,'').replace(/\s+/g,'_');
+  const timestamp = Date.now();
+  const path = `${ROUTES_FOLDER}/${filenameSafe}_${timestamp}.json`;
+  const content = btoa(JSON.stringify({ name, created: timestamp, points }, null, 2));
+  const message = `Add route ${name} (${timestamp})`;
+  try {
+    await ghApi(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`, 'PUT', {
+      message, content, branch: 'main'
+    });
+    alert('Rutt sparad: ' + path);
+    await listSavedRoutes();
+  } catch (e){
+    console.error('Save error', e);
+    alert('Kunde inte spara rutt: ' + e.message);
+  }
+}
+
+/* ---------- Ladda vald rutt och visa geometry + instruktioner ---------- */
+loadBtn.onclick = async () => {
+  const selected = routeSelect.value;
+  if (!selected) { alert('Välj en rutt'); return; }
+  const raw = await loadRouteFromPath(selected);
+  if (!raw || !raw.points) return;
+  fullLayer.setLatLngs(raw.points.map(p=>[p.lat,p.lon]));
+  map.fitBounds(fullLayer.getBounds(), { padding:[30,30] });
+
+  // OSRM turn-by-turn
+  try {
+    const coords = raw.points.map(p=>`${p.lon},${p.lat}`).join(';');
+    const url = `${OSRM_BASE}/route/v1/driving/${coords}?steps=true&geometries=geojson&overview=full`;
+    const r = await fetch(url);
+    const data = await r.json();
+    if (data.routes && data.routes.length) {
+      const steps = data.routes[0].legs.flatMap(l=>l.steps);
+      instrList.innerHTML = '';
+      steps.forEach((s,i)=>{
+        const div = document.createElement('div');
+        div.className = 'route-item';
+        div.innerHTML = `<strong>${i+1}. ${s.maneuver.instruction || s.name || ''}</strong><div>${Math.round(s.distance)} m</div>`;
+        instrList.appendChild(div);
+      });
+    } else instrList.textContent = 'Inga instruktioner från OSRM';
+  } catch (e) {
+    instrList.textContent = 'OSRM fel: ' + e.message;
+    console.error(e);
+  }
+
+  // Prepare live coloring
+  window.loadedRoutePoints = raw.points;
+  segmentsLayer.clearLayers();
+  shortGreenLayer.clearLayers();
+  drawSegmentsAccordingToProgress(0);
+};
+
+/* ---------- Render segments: lila/green beroende på progress index ---------- */
+function drawSegmentsAccordingToProgress(progressIndex){
+  if (!window.loadedRoutePoints) return;
+  segmentsLayer.clearLayers();
+  const pts = window.loadedRoutePoints;
+  for (let i=0;i<pts.length-1;i++){
+    const a = pts[i], b = pts[i+1];
+    const color = i <= progressIndex ? '#00AA00' : '#6A0DAD';
+    L.polyline([[a.lat,a.lon],[b.lat,b.lon]], { color, weight:5 }).addTo(segmentsLayer);
+  }
+}
+
+/* ---------- Live matching mot laddad rutt ---------- */
+function handleLivePosition(lat,lon){
+  if (!window.loadedRoutePoints || window.loadedRoutePoints.length<2) return;
+  let bestIdx = 0, bestDist = Infinity;
+  for (let i=0;i<window.loadedRoutePoints.length;i++){
+    const d = haversine({lat,lon}, window.loadedRoutePoints[i]);
+    if (d < bestDist) { bestDist = d; bestIdx = i; }
+  }
+  const segIndex = Math.max(0, bestIdx-1);
+  drawSegmentsAccordingToProgress(segIndex);
+  shortGreenLayer.clearLayers();
+  const matched = window.loadedRoutePoints[bestIdx];
+  L.polyline([[matched.lat, matched.lon],[lat, lon]], { color:'#00CC33', weight:6 }).addTo(shortGreenLayer);
+}
+
+/* ---------- Save button handler ---------- */
+document.getElementById('saveBtn').onclick = async () => {
+  if (!currentPoints || currentPoints.length < 2) { alert('Inspelad rutt måste ha minst två punkter'); return; }
+  const name = routeNameInput.value.trim();
+  if (!name) { alert('Sätt ett namn på rutten'); return; }
+  await saveRouteToGitHub(name, currentPoints);
+};
+
+/* ---------- Live watch for coloring loaded route (always active) ---------- */
+let liveWatchId = null;
+if ('geolocation' in navigator) {
+  liveWatchId = navigator.geolocation.watchPosition(pos=>{
+    const lat = pos.coords.latitude, lon = pos.coords.longitude;
+    map.setView([lat,lon], map.getZoom(), { animate:true, duration:0.2 });
+    handleLivePosition(lat,lon);
+  }, err=>console.warn('live watch err',err), { enableHighAccuracy:true, maximumAge:0, timeout:10000 });
+}
+
+/* ---------- Utility: refresh routes list periodically ---------- */
+setInterval(()=>{ listSavedRoutes(); }, 60_000);
+
+</script>
+</body>
+</html>
