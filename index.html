@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8" />
+<title>GPS Tracker — Smooth Mode (Final)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
+
+<style>
+:root{
+  --bg:#0b0f14;
+  --panel: rgba(255,255,255,0.04);
+  --muted:#9aa7b2;
+  --accent:#007bff;
+  --glass: rgba(255,255,255,0.08);
+  --btn-hover: rgba(255,255,255,0.12);
+  --shadow-strong: 0 12px 36px rgba(0,0,0,0.6);
+  --ease-quick: cubic-bezier(.2,.9,.2,1);
+}
+
+/* base */
+html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;background:var(--bg);color:#e6eef6;-webkit-font-smoothing:antialiased;}
+#map{position:fixed;inset:0;will-change:transform}
+
+/* topbar */
+.topbar{
+  position:absolute;left:14px;top:14px;z-index:1200;
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  padding:12px;border-radius:14px;background:var(--panel);
+  box-shadow:var(--shadow-strong);backdrop-filter:blur(14px) saturate(140%);
+  transition:opacity .28s var(--ease-quick),transform .28s var(--ease-quick);
+}
+.topbar.hidden{opacity:0;transform:translateY(-16px);pointer-events:none}
+
+/* controls */
+.topbar button, .topbar input, .topbar select{
+  background:var(--glass);border:0;color:inherit;padding:10px 13px;border-radius:12px;font-size:14px;cursor:pointer;
+  transition:transform .16s var(--ease-quick),background .16s var(--ease-quick);
+  box-shadow:none;
+}
+.topbar button:hover{transform:translateY(-3px);background:var(--btn-hover);}
+
+/* inputs */
+.topbar input{min-width:170px;padding:10px 12px;color:inherit}
+.topbar select{min-width:150px;padding:9px 12px}
+
+/* toggle */
+.toggleTopbar{
+  position:absolute;right:14px;top:14px;z-index:1300;width:46px;height:46px;border-radius:12px;border:0;
+  background:rgba(255,255,255,0.06);color:#e6eef6;font-size:20px;cursor:pointer;backdrop-filter:blur(10px);
+}
+.toggleTopbar:hover{background:rgba(255,255,255,0.10);transform:translateY(-3px)}
+
+/* toasts */
+#notifyContainer{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:1400;display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.notifyToast{min-width:160px;padding:10px 14px;border-radius:12px;background:rgba(18,18,18,0.7);color:#fff;font-size:14px;backdrop-filter:blur(10px);opacity:0;transform:translateY(10px) scale(.995);transition:opacity .36s var(--ease-quick),transform .36s var(--ease-quick)}
+.notifyToast.show{opacity:1;transform:translateY(0) scale(1)}
+.notifyToast.hide{opacity:0;transform:translateY(14px) scale(.995)}
+
+/* token indicator bottom-left */
+#tokenIndicator{
+  position:fixed;
+  left:14px;
+  bottom:14px;
+  z-index:1500;
+  display:flex;
+  gap:10px;
+  align-items:center;
+  padding:8px 10px;
+  border-radius:12px;
+  background: rgba(10,10,10,0.55);
+  color:#e6eef6;
+  font-size:13px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.6);
+}
+#tokenIndicator .dot{
+  width:10px;height:10px;border-radius:50%;
+  background:#ff4d4d; box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+}
+#tokenIndicator.ok .dot{ background:#00c853; }
+
+/* small screens */
+@media (max-width:720px){
+  .topbar{left:10px;right:10px;padding:10px}
+  .topbar input,.topbar select{min-width:120px}
+}
+
+/* helper */
+.hidden-elem{opacity:0;pointer-events:none;transform:translateY(-8px)}
+.visible-elem{opacity:1;transform:translateY(0)}
+</style>
+</head>
+
+<body>
+
+<div id="map" aria-hidden="true"></div>
+
+<div id="notifyContainer" aria-live="polite"></div>
+
+<!-- Topbar controls -->
+<div class="topbar" role="region" aria-label="Controls">
+  <button id="startBtn">Starta inspelning</button>
+  <button id="stopBtn" disabled>Stoppa inspelning</button>
+  <input id="routeName" placeholder="Namn på rutt" aria-label="Namn på rutt" />
+  <button id="saveBtn" disabled>Spara Rutt</button>
+  <button id="setTokenBtn">Token</button>
+  <select id="routeSelect" aria-label="Välj rutt"></select>
+  <button id="loadBtn">Ladda rutt</button>
+  <button id="resetProgressBtn">Reset progress</button>
+  <button id="followBtn" aria-pressed="false">Följ: Av</button>
+</div>
+
+<button id="toggleTopbar" class="toggleTopbar" title="Visa/Göm kontroller" aria-expanded="true">≡</button>
+
+<!-- token indicator bottom-left -->
+<div id="tokenIndicator" aria-hidden="false" title="Token status">
+  <div class="dot" aria-hidden="true"></div>
+  <div id="tokenText">Ingen token</div>
+</div>
+
+<!-- Load MapLibre -->
+<script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
+
+<script>
+/* ===========================
+   SMOOTH core (single watch + RAF)
+   =========================== */
+
+(() => {
+  // Small utility / notifier (used here as well)
+  const notify = (m, ms=2000) => {
+    const c = document.getElementById('notifyContainer');
+    const t = document.createElement('div'); t.className='notifyToast'; t.textContent = m;
+    c.appendChild(t); void t.offsetWidth; t.classList.add('show');
+    setTimeout(()=>{ t.classList.remove('show'); t.classList.add('hide'); setTimeout(()=>t.remove(),300); }, ms);
+  };
+
+  // STATE for smooth engine
+  const STATE = {
+    targetPos: null,
+    currentPos: null,
+    targetHeading: 0,
+    currentHeading: 0,
+    smoothingPos: 0.14,     // tweak for feel (higher = snappier)
+    smoothingHeading: 0.18, // tweak for heading responsiveness
+    follow: false,
+    mapReady: false,
+    imgReady: false,
+    prevRawPos: null
+  };
+
+  // helpers
+  const lerp = (a,b,t) => a + (b-a)*t;
+  const lerpPos = (cur, tgt, t) => {
+    if (!cur) return { lat: tgt.lat, lon: tgt.lon };
+    return { lat: lerp(cur.lat, tgt.lat, t), lon: lerp(cur.lon, tgt.lon, t) };
+  };
+  const shortestAngleDiff = (a,b) => {
+    let d = (b - a + 540) % 360 - 180;
+    return d;
+  };
+  const lerpHeading = (cur, tgt, t) => {
+    if (cur === null || cur === undefined) return tgt;
+    const d = shortestAngleDiff(cur, tgt);
+    return (cur + d * t + 360) % 360;
+  };
+
+  // init map
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        basemap: {
+          type: 'raster',
+          tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],
+          tileSize: 512
+        }
+      },
+      layers: [{ id: 'osm', type: 'raster', source: 'basemap' }]
+    },
+    center: [18.06, 59.33],
+    zoom: 15,
+    pitch: 0,
+    bearing: 0,
+    interactive: true
+  });
+
+  function addLineLayer(id, source, color, width){
+    if (!map.getLayer(id)) {
+      map.addLayer({
+        id,
+        type: 'line',
+        source,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': color, 'line-width': width }
+      });
+    }
+  }
+
+  map.on('load', () => {
+    map.addSource('full',  { type:'geojson', data: { type:'FeatureCollection', features: [] } });
+    map.addSource('seg',   { type:'geojson', data: { type:'FeatureCollection', features: [] } });
+    map.addSource('trail', { type:'geojson', data: { type:'FeatureCollection', features: [] } });
+    map.addSource('gps',   { type:'geojson', data: { type:'FeatureCollection', features: [] } });
+
+    addLineLayer('full-line','full','#6A0DAD',4);
+    addLineLayer('seg-line','seg',['get','color'],6);
+    addLineLayer('trail-line','trail','#00ff55',6);
+
+    // SVG arrow (no outline, subtle drop shadow)
+    const arrowSVG = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="56" height="56">
+        <defs>
+          <filter id="ds" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="2" stdDeviation="2.2" flood-color="rgba(0,0,0,0.6)"/>
+          </filter>
+        </defs>
+        <path d="M12 2 L17 15 L12 13 L7 15 Z" fill="#007bff" filter="url(#ds)" />
+      </svg>`;
+    const img = new Image();
+    img.onload = () => {
+      try { map.addImage('gps-arrow', img, { pixelRatio:2 }); } catch(e){}
+      if (!map.getLayer('gps-arrow-layer')) {
+        map.addLayer({
+          id: 'gps-arrow-layer',
+          type: 'symbol',
+          source: 'gps',
+          layout: {
+            'icon-image': 'gps-arrow',
+            'icon-size': 1.9,
+            'icon-rotate': ['get','heading'],
+            'icon-rotation-alignment': 'map',
+            'icon-allow-overlap': true
+          }
+        });
+      }
+      STATE.imgReady = true;
+    };
+    img.src = 'data:image/svg+xml;base64,' + btoa(arrowSVG);
+
+    STATE.mapReady = true;
+  });
+
+  // RAF loop: updates gps source + camera jumpTo when following
+  let raf = null;
+  function frame(){
+    if (STATE.targetPos) {
+      STATE.currentPos = lerpPos(STATE.currentPos, STATE.targetPos, STATE.smoothingPos);
+      STATE.currentHeading = lerpHeading(STATE.currentHeading, STATE.targetHeading, STATE.smoothingHeading);
+
+      // update gps source every frame
+      try {
+        const s = map.getSource('gps');
+        if (s) {
+          s.setData({
+            type:'FeatureCollection',
+            features:[{
+              type:'Feature',
+              geometry:{ type:'Point', coordinates:[STATE.currentPos.lon, STATE.currentPos.lat] },
+              properties:{ heading: STATE.currentHeading }
+            }]
+          });
+        }
+      } catch(e){}
+
+      // follow camera via jumpTo (cheap)
+      if (STATE.follow) {
+        try {
+          map.jumpTo({
+            center: [STATE.currentPos.lon, STATE.currentPos.lat],
+            bearing: STATE.currentHeading,
+            pitch: 0
+          });
+        } catch(e){}
+      }
+    }
+    raf = requestAnimationFrame(frame);
+  }
+
+  map.on('load', () => { if (!raf) raf = requestAnimationFrame(frame); });
+
+  // compute heading between two points
+  function headingBetween(a,b){
+    const y = Math.sin((b.lon-a.lon) * Math.PI/180) * Math.cos(b.lat * Math.PI/180);
+    const x = Math.cos(a.lat * Math.PI/180) * Math.sin(b.lat * Math.PI/180) -
+              Math.sin(a.lat * Math.PI/180) * Math.cos(b.lat * Math.PI/180) * Math.cos((b.lon-a.lon) * Math.PI/180);
+    return (Math.atan2(y,x) * 180 / Math.PI + 360) % 360;
+  }
+
+  // SINGLE main geowatch (source-of-truth)
+  if (navigator.geolocation) {
+    navigator.geolocation.watchPosition((p) => {
+      const raw = { lat: p.coords.latitude, lon: p.coords.longitude, t: p.timestamp || Date.now() };
+
+      // set target position
+      STATE.targetPos = { lat: raw.lat, lon: raw.lon };
+
+      // compute raw heading (if we have a previous raw fix)
+      if (STATE.prevRawPos) {
+        STATE.targetHeading = headingBetween(STATE.prevRawPos, raw);
+      }
+      STATE.prevRawPos = raw;
+
+      // seed current pos if first fix
+      if (!STATE.currentPos) STATE.currentPos = { lat: raw.lat, lon: raw.lon };
+      if ((STATE.currentHeading === 0 || STATE.currentHeading === null) && STATE.targetHeading) STATE.currentHeading = STATE.targetHeading;
+    }, (err) => {
+      console.warn('geowatch error', err);
+      notify('GPS fel: ' + (err && err.message ? err.message : 'okänd'));
+    }, { enableHighAccuracy:true, maximumAge:0 });
+  } else {
+    notify('Geolocation ej tillgängligt i din webbläsare');
+  }
+
+  // Expose API for UI
+  window.__smooth = {
+    setFollow: v => { STATE.follow = !!v; },
+    getFollow: () => STATE.follow,
+    setSmoothing: (p,h) => { if (typeof p === 'number') STATE.smoothingPos = p; if (typeof h === 'number') STATE.smoothingHeading = h; },
+    getState: () => ({ ...STATE }),
+    setSourceData: (id,data) => { try { if (map && map.getSource && map.getSource(id)) map.getSource(id).setData(data); } catch(e){} }
+  };
+
+  // expose map
+  window.map = map;
+
+})(); // end smooth core
+</script>
+
+<script>
+/* ===========================
+   UI + Routes + Recording (uses __smooth)
+   =========================== */
+
+(() => {
+
+  const cfg = { owner: "MasterBenDover", repo: "gps-tracker", folder: "routes", branch: "main" };
+
+  const $ = id => document.getElementById(id);
+  const UI = {
+    start: $("startBtn"),
+    stop: $("stopBtn"),
+    save: $("saveBtn"),
+    load: $("loadBtn"),
+    name: $("routeName"),
+    select: $("routeSelect"),
+    tokenBtn: $("setTokenBtn"),
+    reset: $("resetProgressBtn"),
+    follow: $("followBtn"),
+    toggle: $("toggleTopbar")
+  };
+
+  // token indicator elements
+  const tokenIndicator = document.getElementById('tokenIndicator');
+  const tokenDot = tokenIndicator.querySelector('.dot');
+  const tokenText = document.getElementById('tokenText');
+
+  // small notifier using same style
+  const notify = (m, ms=2000) => {
+    const c = document.getElementById('notifyContainer');
+    const t = document.createElement('div'); t.className='notifyToast'; t.textContent = m;
+    c.appendChild(t); void t.offsetWidth; t.classList.add('show');
+    setTimeout(()=>{ t.classList.remove('show'); t.classList.add('hide'); setTimeout(()=>t.remove(),300); }, ms);
+  };
+
+  // PAT
+  let PAT = sessionStorage.getItem('gh_pat') || null;
+  function updateTokenUI(){
+    if (PAT) {
+      tokenIndicator.classList.add('ok');
+      tokenText.textContent = 'Token sparad';
+      tokenIndicator.title = 'GitHub token sparad i sessionStorage';
+    } else {
+      tokenIndicator.classList.remove('ok');
+      tokenText.textContent = 'Ingen token';
+      tokenIndicator.title = 'Token saknas';
+    }
+  }
+  updateTokenUI();
+
+  // GitHub helper
+  async function gh(path, method='GET', body=null){
+    const headers = { Accept: 'application/vnd.github.v3+json' };
+    if (PAT) headers['Authorization'] = 'token ' + PAT;
+    if (body) headers['Content-Type'] = 'application/json';
+    const r = await fetch(`https://api.github.com${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    if (!r.ok) {
+      const txt = await r.text();
+      throw new Error(txt || r.statusText);
+    }
+    return r.json().catch(()=>null);
+  }
+
+  const b64enc = s => btoa(unescape(encodeURIComponent(s)));
+  const b64dec = b => decodeURIComponent(escape(atob(b)));
+
+  // route list loader
+  async function loadList(){
+    UI.select.innerHTML = '<option>(läser...)</option>';
+    try {
+      const files = await gh(`/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.folder}`);
+      UI.select.innerHTML = '<option value="">Välj rutt</option>';
+      files.filter(f => f.name.endsWith('.json')).sort((a,b)=>b.name.localeCompare(a.name)).forEach(f=>{
+        const o = document.createElement('option'); o.value = f.path; o.textContent = f.name.replace(/\.json$/,'');
+        UI.select.appendChild(o);
+      });
+    } catch(e){
+      UI.select.innerHTML = '<option>(tom)</option>';
+    }
+  }
+  loadList();
+
+  // Recording: we sample from __smooth.getState().prevRawPos every SAMPLE_MS while recording.
+  // This avoids creating a second geowatch (prevents conflicts & lag).
+  let recording = false;
+  let recPoints = [];
+  let sampleIntervalId = null;
+  const SAMPLE_MS = 900; // sample interval for recording (tweak if needed)
+
+  UI.start.addEventListener('click', () => {
+    if (!navigator.geolocation) return alert('Ingen geolocation i din webbläsare');
+    recording = true; recPoints = [];
+    UI.start.disabled = true; UI.stop.disabled = false; UI.save.disabled = true;
+    // clear layers
+    if (window.__smooth) {
+      window.__smooth.setSourceData('full', { type:'FeatureCollection', features:[] });
+      window.__smooth.setSourceData('trail', { type:'FeatureCollection', features:[] });
+    }
+    notify('Inspelning startad');
+
+    // Start sampling prevRawPos into recPoints
+    sampleIntervalId = setInterval(() => {
+      try {
+        const s = window.__smooth && window.__smooth.getState ? window.__smooth.getState() : null;
+        const raw = s && s.prevRawPos ? s.prevRawPos : null;
+        if (raw) {
+          recPoints.push({ lat: raw.lat, lon: raw.lon, t: raw.t || Date.now() });
+          // update visuals
+          if (recPoints.length >= 2) {
+            window.__smooth.setSourceData('full', {
+              type:'FeatureCollection',
+              features:[{ type:'Feature', geometry:{ type:'LineString', coordinates: recPoints.map(p=>[p.lon,p.lat]) } }]
+            });
+            // trail: last two points
+            const last2 = recPoints.slice(-2);
+            if (last2.length === 2) {
+              window.__smooth.setSourceData('trail', {
+                type:'FeatureCollection',
+                features:[{ type:'Feature', geometry:{ type:'LineString', coordinates: last2.map(p=>[p.lon,p.lat]) } }]
+              });
+            }
+            UI.save.disabled = recPoints.length < 2;
+          }
+        }
+      } catch(e){}
+    }, SAMPLE_MS);
+  });
+
+  UI.stop.addEventListener('click', () => {
+    if (sampleIntervalId) { clearInterval(sampleIntervalId); sampleIntervalId = null; }
+    recording = false;
+    UI.start.disabled = false; UI.stop.disabled = true;
+    UI.save.disabled = recPoints.length < 2;
+    notify('Inspelning stoppad');
+  });
+
+  // Save route
+  UI.save.addEventListener('click', async () => {
+    if (!recPoints || recPoints.length < 2) return notify('Minst 2 punkter krävs');
+    const name = UI.name.value.trim();
+    if (!name) return alert('Ange ett namn för rutten');
+    const filename = `${name}.json`;
+    const path = `${cfg.folder}/${filename}`;
+    const payload = { name, points: recPoints };
+    const content = b64enc(JSON.stringify(payload, null, 2));
+    try {
+      // check existing
+      let sha = null;
+      try {
+        const existing = await gh(`/repos/${cfg.owner}/${cfg.repo}/contents/${path}`);
+        if (existing && existing.sha) sha = existing.sha;
+      } catch(e){}
+      const body = { message: sha ? `Uppdaterar rutt ${name}` : `Skapar rutt ${name}`, content, branch: cfg.branch };
+      if (sha) body.sha = sha;
+      await gh(`/repos/${cfg.owner}/${cfg.repo}/contents/${path}`, 'PUT', body);
+      notify('Rutt sparad');
+      loadList();
+    } catch(e){
+      console.error(e); notify('Fel vid sparning — kontrollera token & repo');
+      alert('Fel vid sparning: ' + (e.message || e));
+    }
+  });
+
+  // Load route
+  UI.load.addEventListener('click', async () => {
+    if (!UI.select.value) return alert('Välj rutt');
+    try {
+      const file = await gh(`/repos/${cfg.owner}/${cfg.repo}/contents/${UI.select.value}`);
+      const data = JSON.parse(b64dec(file.content));
+      if (!data || !data.points) return alert('Ogiltig ruttfil');
+      // draw full
+      window.__smooth.setSourceData('full', { type:'FeatureCollection', features:[{ type:'Feature', geometry:{ type:'LineString', coordinates: data.points.map(p=>[p.lon,p.lat]) } }] });
+      // reset seg/trail
+      window.__smooth.setSourceData('trail', { type:'FeatureCollection', features:[] });
+      window.__smooth.setSourceData('seg', { type:'FeatureCollection', features:[] });
+      // zoom to route
+      try {
+        const lons = data.points.map(p=>p.lon), lats = data.points.map(p=>p.lat);
+        if (window.map && window.map.fitBounds) {
+          window.map.fitBounds([[Math.min(...lons), Math.min(...lats)],[Math.max(...lons), Math.max(...lats)]], { padding:50, duration:700 });
+        }
+      } catch(e){}
+      notify('Rutt laddad');
+    } catch(e){
+      console.error(e); alert('Fel vid laddning: ' + (e.message || e));
+    }
+  });
+
+  UI.reset.addEventListener('click', () => {
+    window.__smooth.setSourceData('seg', { type:'FeatureCollection', features:[] });
+    notify('Progress återställd');
+  });
+
+  // Token handling
+  UI.tokenBtn.addEventListener('click', () => {
+    const t = prompt('Klistra in GitHub PAT (classic token med repo-scope):');
+    if (!t) return;
+    PAT = t.trim();
+    sessionStorage.setItem('gh_pat', PAT);
+    updateTokenIndicator();
+    notify('Token sparad i sessionStorage');
+    loadList();
+  });
+
+  function updateTokenIndicator(){
+    if (PAT) {
+      tokenIndicator.classList.add('ok');
+      tokenText.textContent = 'Token sparad';
+    } else {
+      tokenIndicator.classList.remove('ok');
+      tokenText.textContent = 'Ingen token';
+    }
+  }
+  updateTokenIndicator();
+
+  // Follow toggle uses __smooth API
+  UI.follow.addEventListener('click', () => {
+    const on = !(window.__smooth && window.__smooth.getFollow && window.__smooth.getFollow());
+    if (window.__smooth && window.__smooth.setFollow) window.__smooth.setFollow(on);
+    UI.follow.textContent = on ? 'Följ: På' : 'Följ: Av';
+    UI.follow.setAttribute('aria-pressed', on ? 'true' : 'false');
+    notify(on ? 'Följer: På' : 'Följer: Av');
+    // center immediately if we have a smoothed pos
+    const s = window.__smooth && window.__smooth.getState ? window.__smooth.getState() : null;
+    if (on && s && s.currentPos && window.map && window.map.jumpTo) {
+      window.map.jumpTo({ center: [s.currentPos.lon, s.currentPos.lat], bearing: s.currentHeading || 0, pitch: 0 });
+    }
+  });
+
+  // Toggle topbar visibility (fix)
+  UI.toggle.addEventListener('click', () => {
+    const topbar = document.querySelector('.topbar');
+    const isHidden = topbar.classList.toggle('hidden');
+    UI.toggle.setAttribute('aria-expanded', !isHidden);
+  });
+
+  // initial UI state
+  UI.save.disabled = true;
+  UI.stop.disabled = true;
+
+  // Expose for debugging
+  window.__gpsApp = {
+    getState: () => ({ recPoints, PAT, smooth: window.__smooth ? window.__smooth.getState() : null })
+  };
+
+  // ensure token indicator updates if token present on load (sessionStorage)
+  (function initFromSession(){
+    const s = sessionStorage.getItem('gh_pat');
+    if (s) { PAT = s; updateTokenIndicator(); }
+  })();
+
+})(); // end UI
+</script>
+
+</body>
+</html>
